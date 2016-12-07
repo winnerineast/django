@@ -18,7 +18,7 @@ from django.forms import (
     TimeField, ValidationError, forms,
 )
 from django.forms.renderers import get_default_renderer
-from django.forms.renderers.templates import TemplateRenderer
+from django.forms.renderers.templates import DjangoTemplateRenderer
 from django.forms.utils import ErrorList
 from django.http import QueryDict
 from django.template import Context, Template
@@ -3628,7 +3628,7 @@ class RendererTests(SimpleTestCase):
     def setUpClass(cls):
         super(RendererTests, cls).setUpClass()
 
-        class CustomRenderer(TemplateRenderer):
+        class CustomRenderer(DjangoTemplateRenderer):
             pass
 
         cls.custom_renderer = CustomRenderer
@@ -3649,7 +3649,7 @@ class RendererTests(SimpleTestCase):
 
     def test_attribute_instance(self):
         class CustomForm(Form):
-            default_renderer = TemplateRenderer()
+            default_renderer = DjangoTemplateRenderer()
 
         form = CustomForm()
         self.assertEqual(form.renderer, CustomForm.default_renderer)
@@ -3663,7 +3663,7 @@ class RendererTests(SimpleTestCase):
 
     def test_attribute_override(self):
         class CustomForm(Form):
-            default_renderer = TemplateRenderer()
+            default_renderer = DjangoTemplateRenderer()
 
         custom = self.custom_renderer()
         form = CustomForm(renderer=custom)

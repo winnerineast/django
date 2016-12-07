@@ -1516,7 +1516,7 @@ generate correct URLs when ``SCRIPT_NAME`` is not ``/``.
 
 .. versionadded:: 1.11
 
-Default: ``'``:class:`django.forms.renderers.templates.TemplateRenderer`\ ``'``
+Default: ``'``:class:`django.forms.renderers.templates.DjangoTemplateRenderer`\ ``'``
 
 The class that renders form widgets. It must implement :ref:`the low-level
 render API <low-level-widget-render-api>`.

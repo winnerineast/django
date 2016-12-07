@@ -23,21 +23,21 @@ can provide a custom template for ``input.html`` by defining
 
 The rendering of form templates is controlled by a customizable renderer class.
 A custom renderer can be specified by updating the :setting:`FORM_RENDERER`
-setting. It defaults to ``'django.forms.renderers.templates.TemplateRenderer'``.
+setting. It defaults to
+``'django.forms.renderers.templates.DjangoTemplateRenderer'``.
 
 .. module:: django.forms.renderers.templates
 
-.. class:: TemplateRenderer
+.. class:: DjangoTemplateRenderer
+
+This renderer uses a :class:`~django.template.backends.django.DjangoTemplates`
+engine. It loads templates from the application directories and the built-in
+form templates directory.
 
 .. method:: get_template(template_name)
 
     Given a template name, returns a :class:`~django.template.Template` object,
-    or raises :exc:`~django.template.TemplateDoesNotExist`. First attempts to
-    load the template via :class:`~django.template.loader.get_template`, which
-    uses the template engines configured in :setting:`TEMPLATES`. If the
-    template is not found by those engines, it falls back to the built-in form
-    templates shipped with Django (using Jinja2 if installed or Django
-    template language otherwise).
+    or raises :exc:`~django.template.TemplateDoesNotExist`.
 
 .. method:: render(template_name, context, request=None)
 
@@ -46,8 +46,8 @@ setting. It defaults to ``'django.forms.renderers.templates.TemplateRenderer'``.
 
     If you implement a custom renderer, this is the only method that Django
     calls and therefore that you must implement. :meth:`get_template` is called
-    by ``TemplateRenderer.render()``, but your render doesn't need to follow
-    this pattern.
+    by ``DjangoTemplateRenderer.render()``, but your render doesn't need to
+    follow this pattern.
 
 If you want to use a custom template engine specifically for form rendering,
 you could create your own custom renderer subclass like::
@@ -68,17 +68,32 @@ you could create your own custom renderer subclass like::
                 'OPTIONS': {},
             })
 
-.. class:: StandaloneTemplateRenderer
+.. class:: JinjaTemplateRenderer
 
-Django includes a simple renderer class that uses only the built-in default
-form templates and doesn't require (or use) any template engines configured via
-the :setting:`TEMPLATES` setting. This may be useful for standalone usage of
-``django.forms`` or just for simplicity if you don't ever need to
-override or add to the default form templates. To use this renderer, set
-:setting:`FORM_RENDERER` to
-``'django.forms.renderers.templates.StandaloneTemplateRenderer'``. It uses
-a :class:`~django.template.backends.jinja2.Jinja2` backend if installed or
-:class:`~django.template.backends.django.DjangoTemplates` otherwise.
+This renderer is the same as :class:`DjangoTemplateRenderer` except that it
+uses a :class:`~django.template.backends.jinja2.Jinja2` backend.
+
+To use this backend, all the widgets in your project and its third-party apps
+must have Jinja2 templates. You can't use this renderer, for example, if you're
+using :mod:`django.contrib.admin` because Jinja2 templates aren't included for
+the admin widgets.
+
+.. class:: ProjectTemplateRenderer
+
+This renderer gives you complete control of how widget templates are sourced.
+It uses :func:`django.template.loader.get_template` to find widget
+templates based on what's configured in the :setting:`TEMPLATES` setting.
+
+Using the renderer along with the built-in widget templates requires either:
+
+#. ``'django.forms'`` in :setting:`INSTALLED_APPS` and at least one engine
+   with ``APP_DIRS=True``.
+
+#. Adding the built-in widgets templates directory (``django/forms/templates``
+   or ``django/forms/jinja2``) in ``DIRS`` of one of your template engines.
+
+You've chosen to take full control, so it's your responsibility to make
+the form templates you need can be located.
 
 Customizing widget rendering
 ----------------------------
@@ -105,8 +120,8 @@ that subclass ``Input`` defines ``widget['type']`` and :class:`.MultiWidget`
 defines ``widget['subwidgets']`` for looping purposes.
 
 Overriding widget templates works the same as overriding other templates. The
-:class:`TemplateRenderer` uses :func:`~django.template.loader.get_template` to
-find a template.
+:class:`ProjectTemplateRenderer` uses
+:func:`~django.template.loader.get_template` to find a template.
 
 Overriding the renderer per form
 --------------------------------
