@@ -15,7 +15,7 @@ from django.views.decorators.cache import never_cache
 class CustomRequestAuthenticationForm(AuthenticationForm):
     def __init__(self, request, *args, **kwargs):
         assert isinstance(request, HttpRequest)
-        super(CustomRequestAuthenticationForm, self).__init__(request, *args, **kwargs)
+        super().__init__(request, *args, **kwargs)
 
 
 @never_cache
@@ -62,6 +62,8 @@ def userpage(request):
     pass
 
 
+uid_token = r'(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})'
+
 # special urls for auth test cases
 urlpatterns = auth_urlpatterns + [
     url(r'^logout/custom_query/$', views.LogoutView.as_view(redirect_field_name='follow')),
@@ -73,7 +75,7 @@ urlpatterns = auth_urlpatterns + [
     url(r'^password_reset_from_email/$',
         views.PasswordResetView.as_view(from_email='staffmember@example.com')),
     url(r'^password_reset_extra_email_context/$',
-        views.PasswordResetView.as_view(extra_email_context=dict(greeting='Hello!'))),
+        views.PasswordResetView.as_view(extra_email_context={'greeting': 'Hello!'})),
     url(r'^password_reset/custom_redirect/$',
         views.PasswordResetView.as_view(success_url='/custom/')),
     url(r'^password_reset/custom_redirect/named/$',
@@ -82,12 +84,19 @@ urlpatterns = auth_urlpatterns + [
         views.PasswordResetView.as_view(
             html_email_template_name='registration/html_password_reset_email.html'
         )),
-    url(r'^reset/custom/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',
+    url(r'^reset/custom/{}/$'.format(uid_token),
         views.PasswordResetConfirmView.as_view(success_url='/custom/')),
-    url(r'^reset/custom/named/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',
+    url(r'^reset/custom/named/{}/$'.format(uid_token),
         views.PasswordResetConfirmView.as_view(success_url=reverse_lazy('password_reset'))),
-    url(r'^reset/post_reset_login/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',
+    url(r'^reset/post_reset_login/{}/$'.format(uid_token),
         views.PasswordResetConfirmView.as_view(post_reset_login=True)),
+    url(
+        r'^reset/post_reset_login_custom_backend/{}/$'.format(uid_token),
+        views.PasswordResetConfirmView.as_view(
+            post_reset_login=True,
+            post_reset_login_backend='django.contrib.auth.backends.AllowAllUsersModelBackend',
+        ),
+    ),
     url(r'^password_change/custom/$',
         views.PasswordChangeView.as_view(success_url='/custom/')),
     url(r'^password_change/custom/named/$',

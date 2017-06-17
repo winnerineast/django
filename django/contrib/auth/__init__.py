@@ -42,7 +42,7 @@ def get_backends():
 
 def _clean_credentials(credentials):
     """
-    Cleans a dictionary of credentials of potentially sensitive info before
+    Clean a dictionary of credentials of potentially sensitive info before
     sending to less secure functions.
 
     Not comprehensive - intended for user_login_failed signal
@@ -66,24 +66,8 @@ def authenticate(request=None, **credentials):
     If the given credentials are valid, return a User object.
     """
     for backend, backend_path in _get_backends(return_tuples=True):
-        args = (request,)
         try:
-            inspect.getcallargs(backend.authenticate, request, **credentials)
-        except TypeError:
-            try:
-                inspect.getcallargs(backend.authenticate, **credentials)
-            except TypeError:
-                # This backend doesn't accept these credentials as arguments. Try the next one.
-                continue
-            else:
-                args = ()
-                warnings.warn(
-                    "Update authentication backend %s to accept a "
-                    "positional `request` argument." % backend_path,
-                    RemovedInDjango21Warning
-                )
-        try:
-            user = backend.authenticate(*args, **credentials)
+            user = _authenticate_with_backend(backend, backend_path, request, credentials)
         except PermissionDenied:
             # This backend says to stop in our tracks - this user should not be allowed in at all.
             break
@@ -95,6 +79,40 @@ def authenticate(request=None, **credentials):
 
     # The credentials supplied are invalid to all backends, fire signal
     user_login_failed.send(sender=__name__, credentials=_clean_credentials(credentials), request=request)
+
+
+def _authenticate_with_backend(backend, backend_path, request, credentials):
+    args = (request,)
+    # Does the backend accept a request argument?
+    try:
+        inspect.getcallargs(backend.authenticate, request, **credentials)
+    except TypeError:
+        args = ()
+        credentials.pop('request', None)
+        # Does the backend accept a request keyword argument?
+        try:
+            inspect.getcallargs(backend.authenticate, request=request, **credentials)
+        except TypeError:
+            # Does the backend accept credentials without request?
+            try:
+                inspect.getcallargs(backend.authenticate, **credentials)
+            except TypeError:
+                # This backend doesn't accept these credentials as arguments. Try the next one.
+                return None
+            else:
+                warnings.warn(
+                    "Update %s.authenticate() to accept a positional "
+                    "`request` argument." % backend_path,
+                    RemovedInDjango21Warning
+                )
+        else:
+            credentials['request'] = request
+            warnings.warn(
+                "In %s.authenticate(), move the `request` keyword argument "
+                "to the first positional argument." % backend_path,
+                RemovedInDjango21Warning
+            )
+    return backend.authenticate(*args, **credentials)
 
 
 def login(request, user, backend=None):
@@ -144,8 +162,8 @@ def login(request, user, backend=None):
 
 def logout(request):
     """
-    Removes the authenticated user's ID from the request and flushes their
-    session data.
+    Remove the authenticated user's ID from the request and flush their session
+    data.
     """
     # Dispatch the signal before the user is logged out so the receivers have a
     # chance to find out *who* logged out.
@@ -169,7 +187,7 @@ def logout(request):
 
 def get_user_model():
     """
-    Returns the User model that is active in this project.
+    Return the User model that is active in this project.
     """
     try:
         return django_apps.get_model(settings.AUTH_USER_MODEL, require_ready=False)
@@ -183,8 +201,8 @@ def get_user_model():
 
 def get_user(request):
     """
-    Returns the user model instance associated with the given request session.
-    If no user is retrieved an instance of `AnonymousUser` is returned.
+    Return the user model instance associated with the given request session.
+    If no user is retrieved, return an instance of `AnonymousUser`.
     """
     from .models import AnonymousUser
     user = None
@@ -213,7 +231,7 @@ def get_user(request):
 
 def get_permission_codename(action, opts):
     """
-    Returns the codename of the permission for the specified action.
+    Return the codename of the permission for the specified action.
     """
     return '%s_%s' % (action, opts.model_name)
 
@@ -222,10 +240,10 @@ def update_session_auth_hash(request, user):
     """
     Updating a user's password logs out all sessions for the user.
 
-    This function takes the current request and the updated user object from
-    which the new session hash will be derived and updates the session hash
-    appropriately to prevent a password change from logging out the session
-    from which the password was changed.
+    Take the current request and the updated user object from which the new
+    session hash will be derived and update the session hash appropriately to
+    prevent a password change from logging out the session from which the
+    password was changed.
     """
     request.session.cycle_key()
     if hasattr(user, 'get_session_auth_hash') and request.user == user:

@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 import datetime
 from collections import Counter
+from unittest import mock
 
 from django.forms import (
     BaseForm, CharField, DateField, FileField, Form, IntegerField,
@@ -10,8 +8,7 @@ from django.forms import (
 )
 from django.forms.formsets import BaseFormSet, formset_factory
 from django.forms.utils import ErrorList
-from django.test import SimpleTestCase, mock
-from django.utils.encoding import force_text
+from django.test import SimpleTestCase
 
 
 class Choice(Form):
@@ -59,9 +56,9 @@ SplitDateTimeFormSet = formset_factory(SplitDateTimeForm)
 
 
 class CustomKwargForm(Form):
-    def __init__(self, *args, **kwargs):
-        self.custom_kwarg = kwargs.pop('custom_kwarg')
-        super(CustomKwargForm, self).__init__(*args, **kwargs)
+    def __init__(self, *args, custom_kwarg, **kwargs):
+        self.custom_kwarg = custom_kwarg
+        super().__init__(*args, **kwargs)
 
 
 class FormsFormsetTestCase(SimpleTestCase):
@@ -404,6 +401,31 @@ class FormsFormsetTestCase(SimpleTestCase):
         formset = ChoiceFormSet(data, auto_id=False, prefix='choices')
         self.assertFalse(formset.is_valid())
         self.assertEqual(formset.non_form_errors(), ['Please submit 3 or more forms.'])
+
+    def test_formset_validate_min_unchanged_forms(self):
+        """
+        min_num validation doesn't consider unchanged forms with initial data
+        as "empty".
+        """
+        initial = [
+            {'choice': 'Zero', 'votes': 0},
+            {'choice': 'One', 'votes': 0},
+        ]
+        data = {
+            'choices-TOTAL_FORMS': '2',
+            'choices-INITIAL_FORMS': '2',
+            'choices-MIN_NUM_FORMS': '0',
+            'choices-MAX_NUM_FORMS': '2',
+            'choices-0-choice': 'Zero',
+            'choices-0-votes': '0',
+            'choices-1-choice': 'One',
+            'choices-1-votes': '1',  # changed from initial
+        }
+        ChoiceFormSet = formset_factory(Choice, min_num=2, validate_min=True)
+        formset = ChoiceFormSet(data, auto_id=False, prefix='choices', initial=initial)
+        self.assertFalse(formset.forms[0].has_changed())
+        self.assertTrue(formset.forms[1].has_changed())
+        self.assertTrue(formset.is_valid())
 
     def test_formset_validate_min_excludes_empty_forms(self):
         data = {
@@ -1059,7 +1081,7 @@ class FormsFormsetTestCase(SimpleTestCase):
                 return reversed(self.forms)
 
             def __getitem__(self, idx):
-                return super(BaseReverseFormSet, self).__getitem__(len(self) - idx - 1)
+                return super().__getitem__(len(self) - idx - 1)
 
         ReverseChoiceFormset = formset_factory(Choice, BaseReverseFormSet, extra=3)
         reverse_formset = ReverseChoiceFormset()
@@ -1109,7 +1131,7 @@ class FormsFormsetTestCase(SimpleTestCase):
         class AnotherChoice(Choice):
             def is_valid(self):
                 self.is_valid_called = True
-                return super(AnotherChoice, self).is_valid()
+                return super().is_valid()
 
         AnotherChoiceFormSet = formset_factory(AnotherChoice)
         data = {
@@ -1253,7 +1275,7 @@ class FormsFormsetTestCase(SimpleTestCase):
     def test_html_safe(self):
         formset = self.make_choiceformset()
         self.assertTrue(hasattr(formset, '__html__'))
-        self.assertEqual(force_text(formset), formset.__html__())
+        self.assertEqual(str(formset), formset.__html__())
 
 
 data = {

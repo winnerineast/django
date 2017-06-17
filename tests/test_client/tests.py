@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Testing using the Test Client
 
@@ -20,8 +19,6 @@ testing against the contexts and templates produced by a view,
 rather than the HTML rendered to the end-user.
 
 """
-from __future__ import unicode_literals
-
 import tempfile
 
 from django.contrib.auth.models import User
@@ -717,8 +714,8 @@ class ClientTest(TestCase):
             self.client.get('/nesting_exception_view/')
 
     def test_uploading_temp_file(self):
-        test_file = tempfile.TemporaryFile()
-        response = self.client.post('/upload_view/', data={'temp_file': test_file})
+        with tempfile.TemporaryFile() as test_file:
+            response = self.client.post('/upload_view/', data={'temp_file': test_file})
         self.assertEqual(response.content, b'temp_file')
 
     def test_uploading_named_temp_file(self):

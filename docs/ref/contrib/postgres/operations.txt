@@ -67,6 +67,15 @@ run the query ``CREATE EXTENSION IF NOT EXISTS hstore;``.
 
     Installs the ``citext`` extension.
 
+``CryptoExtension``
+===================
+
+.. class:: CryptoExtension()
+
+    .. versionadded:: 2.0
+
+    Installs the ``pgcrypto`` extension.
+
 ``HStoreExtension``
 ===================
 
@@ -79,8 +88,6 @@ run the query ``CREATE EXTENSION IF NOT EXISTS hstore;``.
 ====================
 
 .. class:: TrigramExtension()
-
-    .. versionadded:: 1.10
 
     Installs the ``pg_trgm`` extension.
 

@@ -1,17 +1,11 @@
-from __future__ import unicode_literals
-
 import binascii
-from unittest import skipUnless
 
 from django.contrib.gis.geos import (
-    HAS_GEOS, GEOSGeometry, Point, Polygon, WKBReader, WKBWriter, WKTReader,
-    WKTWriter,
+    GEOSGeometry, Point, Polygon, WKBReader, WKBWriter, WKTReader, WKTWriter,
 )
 from django.test import SimpleTestCase
-from django.utils.six import memoryview
 
 
-@skipUnless(HAS_GEOS, "Geos is required.")
 class GEOSIOTest(SimpleTestCase):
 
     def test01_wktreader(self):
@@ -27,7 +21,7 @@ class GEOSIOTest(SimpleTestCase):
         for geom in (g1, g2):
             self.assertEqual(ref, geom)
 
-        # Should only accept six.string_types objects.
+        # Should only accept string objects.
         with self.assertRaises(TypeError):
             wkt_r.read(1)
         with self.assertRaises(TypeError):
@@ -37,7 +31,7 @@ class GEOSIOTest(SimpleTestCase):
         # Creating a WKTWriter instance, testing its ptr property.
         wkt_w = WKTWriter()
         with self.assertRaises(TypeError):
-            wkt_w._set_ptr(WKTReader.ptr_type())
+            wkt_w.ptr = WKTReader.ptr_type()
 
         ref = GEOSGeometry('POINT (5 23)')
         ref_wkt = 'POINT (5.0000000000000000 23.0000000000000000)'

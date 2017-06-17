@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+from unittest import mock
 
 from django.conf.global_settings import PASSWORD_HASHERS
 from django.contrib.auth import get_user_model
@@ -11,7 +10,7 @@ from django.contrib.auth.models import (
 from django.contrib.contenttypes.models import ContentType
 from django.core import mail
 from django.db.models.signals import post_save
-from django.test import TestCase, mock, override_settings
+from django.test import TestCase, override_settings
 
 from .models.with_custom_email_field import CustomEmailField
 
@@ -148,6 +147,13 @@ class UserManagerTestCase(TestCase):
                 password='test', is_staff=False,
             )
 
+    def test_make_random_password(self):
+        allowed_chars = 'abcdefg'
+        password = UserManager().make_random_password(5, allowed_chars)
+        self.assertEqual(len(password), 5)
+        for char in password:
+            self.assertIn(char, allowed_chars)
+
 
 class AbstractBaseUserTests(TestCase):
 
@@ -155,7 +161,7 @@ class AbstractBaseUserTests(TestCase):
         # The normalization happens in AbstractBaseUser.clean()
         ohm_username = 'iamtheΩ'  # U+2126 OHM SIGN
         for model in ('auth.User', 'auth_tests.CustomUser'):
-            with self.settings(AUTH_USER_MODEL=model):
+            with self.subTest(model=model), self.settings(AUTH_USER_MODEL=model):
                 User = get_user_model()
                 user = User(**{User.USERNAME_FIELD: ohm_username, 'password': 'foo'})
                 user.clean()

@@ -1,8 +1,5 @@
-from __future__ import unicode_literals
-
 from django.db import models
 from django.test import TestCase
-from django.utils import six
 
 from .models import (
     Book, Car, CustomManager, CustomQuerySet, DeconstructibleCustomManager,
@@ -36,7 +33,7 @@ class CustomManagerTests(TestCase):
             Person.objects.get_fun_people(), [
                 "Bugs Bunny"
             ],
-            six.text_type
+            str
         )
 
     def test_queryset_copied_to_default(self):
@@ -45,41 +42,44 @@ class CustomManagerTests(TestCase):
         default Manager.
         """
         for manager_name in self.custom_manager_names:
-            manager = getattr(Person, manager_name)
+            with self.subTest(manager_name=manager_name):
+                manager = getattr(Person, manager_name)
 
-            # Public methods are copied
-            manager.public_method()
-            # Private methods are not copied
-            with self.assertRaises(AttributeError):
-                manager._private_method()
+                # Public methods are copied
+                manager.public_method()
+                # Private methods are not copied
+                with self.assertRaises(AttributeError):
+                    manager._private_method()
 
     def test_manager_honors_queryset_only(self):
         for manager_name in self.custom_manager_names:
-            manager = getattr(Person, manager_name)
-            # Methods with queryset_only=False are copied even if they are private.
-            manager._optin_private_method()
-            # Methods with queryset_only=True aren't copied even if they are public.
-            with self.assertRaises(AttributeError):
-                manager.optout_public_method()
+            with self.subTest(manager_name=manager_name):
+                manager = getattr(Person, manager_name)
+                # Methods with queryset_only=False are copied even if they are private.
+                manager._optin_private_method()
+                # Methods with queryset_only=True aren't copied even if they are public.
+                with self.assertRaises(AttributeError):
+                    manager.optout_public_method()
 
     def test_manager_use_queryset_methods(self):
         """
         Custom manager will use the queryset methods
         """
         for manager_name in self.custom_manager_names:
-            manager = getattr(Person, manager_name)
-            queryset = manager.filter()
-            self.assertQuerysetEqual(queryset, ["Bugs Bunny"], six.text_type)
-            self.assertIs(queryset._filter_CustomQuerySet, True)
+            with self.subTest(manager_name=manager_name):
+                manager = getattr(Person, manager_name)
+                queryset = manager.filter()
+                self.assertQuerysetEqual(queryset, ["Bugs Bunny"], str)
+                self.assertIs(queryset._filter_CustomQuerySet, True)
 
-            # Specialized querysets inherit from our custom queryset.
-            queryset = manager.values_list('first_name', flat=True).filter()
-            self.assertEqual(list(queryset), [six.text_type("Bugs")])
-            self.assertIs(queryset._filter_CustomQuerySet, True)
+                # Specialized querysets inherit from our custom queryset.
+                queryset = manager.values_list('first_name', flat=True).filter()
+                self.assertEqual(list(queryset), ["Bugs"])
+                self.assertIs(queryset._filter_CustomQuerySet, True)
 
-            self.assertIsInstance(queryset.values(), CustomQuerySet)
-            self.assertIsInstance(queryset.values().values(), CustomQuerySet)
-            self.assertIsInstance(queryset.values_list().values(), CustomQuerySet)
+                self.assertIsInstance(queryset.values(), CustomQuerySet)
+                self.assertIsInstance(queryset.values().values(), CustomQuerySet)
+                self.assertIsInstance(queryset.values_list().values(), CustomQuerySet)
 
     def test_init_args(self):
         """
@@ -101,7 +101,7 @@ class CustomManagerTests(TestCase):
         Queryset method doesn't override the custom manager method.
         """
         queryset = Person.custom_queryset_custom_manager.filter()
-        self.assertQuerysetEqual(queryset, ["Bugs Bunny"], six.text_type)
+        self.assertQuerysetEqual(queryset, ["Bugs Bunny"], str)
         self.assertIs(queryset._filter_CustomManager, True)
 
     def test_related_manager(self):

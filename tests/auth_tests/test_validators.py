@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 import os
 
 from django.contrib.auth import validators
@@ -16,7 +13,6 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.test import TestCase, override_settings
 from django.test.utils import isolate_apps
-from django.utils._os import upath
 
 
 @override_settings(AUTH_PASSWORD_VALIDATORS=[
@@ -174,7 +170,7 @@ class CommonPasswordValidatorTest(TestCase):
         self.assertEqual(cm.exception.messages, [expected_error])
 
     def test_validate_custom_list(self):
-        path = os.path.join(os.path.dirname(os.path.realpath(upath(__file__))), 'common-passwords-custom.txt')
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'common-passwords-custom.txt')
         validator = CommonPasswordValidator(password_list_path=path)
         expected_error = "This password is too common."
         self.assertIsNone(validator.validate('a-safe-password'))
@@ -218,17 +214,21 @@ class UsernameValidatorsTests(TestCase):
         ]
         v = validators.UnicodeUsernameValidator()
         for valid in valid_usernames:
-            v(valid)
+            with self.subTest(valid=valid):
+                v(valid)
         for invalid in invalid_usernames:
-            with self.assertRaises(ValidationError):
-                v(invalid)
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValidationError):
+                    v(invalid)
 
     def test_ascii_validator(self):
         valid_usernames = ['glenn', 'GLEnN', 'jean-marc']
         invalid_usernames = ["o'connell", 'Éric', 'jean marc', "أحمد"]
         v = validators.ASCIIUsernameValidator()
         for valid in valid_usernames:
-            v(valid)
+            with self.subTest(valid=valid):
+                v(valid)
         for invalid in invalid_usernames:
-            with self.assertRaises(ValidationError):
-                v(invalid)
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValidationError):
+                    v(invalid)

@@ -1,11 +1,8 @@
-from __future__ import unicode_literals
-
 from math import ceil
 
 from django.db import IntegrityError, connection, models
 from django.db.models.sql.constants import GET_ITERATOR_CHUNK_SIZE
 from django.test import TestCase, skipIfDBFeature, skipUnlessDBFeature
-from django.utils.six.moves import range
 
 from .models import (
     MR, A, Avatar, Base, Child, HiddenUser, HiddenUserProfile, M, M2MFrom,
@@ -189,7 +186,7 @@ class DeletionTests(TestCase):
             obj = kwargs['instance']
             deleted.append(obj)
             if isinstance(obj, R):
-                related_setnull_sets.append(list(a.pk for a in obj.setnull_set.all()))
+                related_setnull_sets.append([a.pk for a in obj.setnull_set.all()])
 
         models.signals.pre_delete.connect(pre_delete)
         a = create_a('update_setnull')

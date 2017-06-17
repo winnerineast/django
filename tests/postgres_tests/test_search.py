@@ -15,7 +15,7 @@ from . import PostgreSQLTestCase
 from .models import Character, Line, Scene
 
 
-class GrailTestData(object):
+class GrailTestData:
 
     @classmethod
     def setUpTestData(cls):
@@ -218,13 +218,13 @@ class TestCombinations(GrailTestData, PostgreSQLTestCase):
 
     def test_query_or(self):
         searched = Line.objects.filter(dialogue__search=SearchQuery('kneecaps') | SearchQuery('nostrils'))
-        self.assertSequenceEqual(set(searched), {self.verse1, self.verse2})
+        self.assertEqual(set(searched), {self.verse1, self.verse2})
 
     def test_query_multiple_or(self):
         searched = Line.objects.filter(
             dialogue__search=SearchQuery('kneecaps') | SearchQuery('nostrils') | SearchQuery('Sir Robin')
         )
-        self.assertSequenceEqual(set(searched), {self.verse1, self.verse2, self.verse0})
+        self.assertEqual(set(searched), {self.verse1, self.verse2, self.verse0})
 
     def test_query_invert(self):
         searched = Line.objects.filter(character=self.minstrel, dialogue__search=~SearchQuery('kneecaps'))

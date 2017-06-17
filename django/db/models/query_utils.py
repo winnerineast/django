@@ -5,14 +5,13 @@ Factored out from django.db.models.query to avoid making the main module very
 large and/or so that they can be used by other modules without getting into
 circular import difficulties.
 """
-from __future__ import unicode_literals
-
+import copy
+import functools
 import inspect
 from collections import namedtuple
 
 from django.db.models.constants import LOOKUP_SEP
 from django.utils import tree
-from django.utils.lru_cache import lru_cache
 
 # PathInfo is used when converting lookups (fk__somecol). The contents
 # describe the relation in Model terms (model Options and Fields for both
@@ -21,22 +20,17 @@ PathInfo = namedtuple('PathInfo', 'from_opts to_opts target_fields join_field m2
 
 
 class InvalidQuery(Exception):
-    """
-    The query passed to raw isn't a safe query to use with raw.
-    """
+    """The query passed to raw() isn't a safe query to use with raw()."""
     pass
 
 
 def subclasses(cls):
     yield cls
-    # Python 2 lacks 'yield from', which could replace the inner loop
     for subclass in cls.__subclasses__():
-        # yield from subclasses(subclass)
-        for item in subclasses(subclass):
-            yield item
+        yield from subclasses(subclass)
 
 
-class QueryWrapper(object):
+class QueryWrapper:
     """
     A type that indicates the contents are an SQL fragment and the associate
     parameters. Can be used to pass opaque data to a where-clause, for example.
@@ -52,7 +46,7 @@ class QueryWrapper(object):
 
 class Q(tree.Node):
     """
-    Encapsulates filters as objects that can then be combined logically (using
+    Encapsulate filters as objects that can then be combined logically (using
     `&` and `|`).
     """
     # Connection types
@@ -61,11 +55,21 @@ class Q(tree.Node):
     default = AND
 
     def __init__(self, *args, **kwargs):
-        super(Q, self).__init__(children=list(args) + list(kwargs.items()))
+        connector = kwargs.pop('_connector', None)
+        negated = kwargs.pop('_negated', False)
+        super().__init__(children=list(args) + list(kwargs.items()), connector=connector, negated=negated)
 
     def _combine(self, other, conn):
         if not isinstance(other, Q):
             raise TypeError(other)
+
+        # If the other Q() is empty, ignore it and just use `self`.
+        if not other:
+            return copy.deepcopy(self)
+        # Or if this Q is empty, ignore it and just use `other`.
+        elif not self:
+            return copy.deepcopy(other)
+
         obj = type(self)()
         obj.connector = conn
         obj.add(self, conn)
@@ -91,8 +95,21 @@ class Q(tree.Node):
         query.promote_joins(joins)
         return clause
 
+    def deconstruct(self):
+        path = '%s.%s' % (self.__class__.__module__, self.__class__.__name__)
+        args, kwargs = (), {}
+        if len(self.children) == 1 and not isinstance(self.children[0], Q):
+            child = self.children[0]
+            kwargs = {child[0]: child[1]}
+        else:
+            args = tuple(self.children)
+            kwargs = {'_connector': self.connector}
+        if self.negated:
+            kwargs['_negated'] = True
+        return path, args, kwargs
 
-class DeferredAttribute(object):
+
+class DeferredAttribute:
     """
     A wrapper for a deferred-loading field. When the value is read from this
     object the first time, the query is executed.
@@ -102,8 +119,8 @@ class DeferredAttribute(object):
 
     def __get__(self, instance, cls=None):
         """
-        Retrieves and caches the value from the datastore on the first lookup.
-        Returns the cached value.
+        Retrieve and caches the value from the datastore on the first lookup.
+        Return the cached value.
         """
         if instance is None:
             return self
@@ -132,14 +149,14 @@ class DeferredAttribute(object):
         return None
 
 
-class RegisterLookupMixin(object):
+class RegisterLookupMixin:
 
     @classmethod
     def _get_lookup(cls, lookup_name):
         return cls.get_lookups().get(lookup_name, None)
 
     @classmethod
-    @lru_cache(maxsize=None)
+    @functools.lru_cache(maxsize=None)
     def get_lookups(cls):
         class_lookups = [parent.__dict__.get('class_lookups', {}) for parent in inspect.getmro(cls)]
         return cls.merge_dicts(class_lookups)
@@ -201,7 +218,7 @@ class RegisterLookupMixin(object):
 
 def select_related_descend(field, restricted, requested, load_fields, reverse=False):
     """
-    Returns True if this field should be used to descend deeper for
+    Return True if this field should be used to descend deeper for
     select_related() purposes. Used by both the query construction code
     (sql.query.fill_related_selections()) and the model instance creation code
     (query.get_klass_info()).
@@ -237,10 +254,9 @@ def select_related_descend(field, restricted, requested, load_fields, reverse=Fa
 
 def refs_expression(lookup_parts, annotations):
     """
-    A helper method to check if the lookup_parts contains references
-    to the given annotations set. Because the LOOKUP_SEP is contained in the
-    default annotation names we must check each prefix of the lookup_parts
-    for a match.
+    Check if the lookup_parts contains references to the given annotations set.
+    Because the LOOKUP_SEP is contained in the default annotation names, check
+    each prefix of the lookup_parts for a match.
     """
     for n in range(len(lookup_parts) + 1):
         level_n_lookup = LOOKUP_SEP.join(lookup_parts[0:n])

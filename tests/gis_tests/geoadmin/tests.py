@@ -1,15 +1,12 @@
-from __future__ import unicode_literals
-
 from django.contrib.gis import admin
 from django.contrib.gis.geos import Point
-from django.test import TestCase, override_settings, skipUnlessDBFeature
+from django.test import TestCase, override_settings
 from django.test.utils import patch_logger
 
 from .admin import UnmodifiableAdmin
 from .models import City, site
 
 
-@skipUnlessDBFeature("gis_enabled")
 @override_settings(ROOT_URLCONF='django.contrib.gis.tests.geoadmin.urls')
 class GeoAdminTest(TestCase):
 
@@ -98,6 +95,6 @@ class GeoAdminTest(TestCase):
         self.assertEqual(len(logger_calls), 1)
         self.assertEqual(
             logger_calls[0],
-            "Error creating geometry from value 'INVALID()' (String or unicode input "
+            "Error creating geometry from value 'INVALID()' (String input "
             "unrecognized as WKT EWKT, and HEXEWKB.)"
         )

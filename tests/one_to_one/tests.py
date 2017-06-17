@@ -1,8 +1,5 @@
-from __future__ import unicode_literals
-
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase, ignore_warnings
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.test import TestCase
 
 from .models import (
     Bar, Director, Favorites, HiddenPointer, ManualPrimaryKey, MultiModel,
@@ -257,24 +254,11 @@ class OneToOneTests(TestCase):
         misbehaving. We test both (primary_key=True & False) cases here to
         prevent any reappearance of the problem.
         """
-        Target.objects.create()
-
-        self.assertQuerysetEqual(
-            Target.objects.filter(pointer=None),
-            ['<Target: Target object>']
-        )
-        self.assertQuerysetEqual(
-            Target.objects.exclude(pointer=None),
-            []
-        )
-        self.assertQuerysetEqual(
-            Target.objects.filter(second_pointer=None),
-            ['<Target: Target object>']
-        )
-        self.assertQuerysetEqual(
-            Target.objects.exclude(second_pointer=None),
-            []
-        )
+        target = Target.objects.create()
+        self.assertSequenceEqual(Target.objects.filter(pointer=None), [target])
+        self.assertSequenceEqual(Target.objects.exclude(pointer=None), [])
+        self.assertSequenceEqual(Target.objects.filter(second_pointer=None), [target])
+        self.assertSequenceEqual(Target.objects.exclude(second_pointer=None), [])
 
     def test_o2o_primary_key_delete(self):
         t = Target.objects.create(name='name')
@@ -419,7 +403,6 @@ class OneToOneTests(TestCase):
             hasattr(Target, HiddenPointer._meta.get_field('target').remote_field.get_accessor_name())
         )
 
-    @ignore_warnings(category=RemovedInDjango20Warning)  # for use_for_related_fields deprecation
     def test_related_object(self):
         public_school = School.objects.create(is_public=True)
         public_director = Director.objects.create(school=public_school, is_temp=False)
@@ -428,16 +411,10 @@ class OneToOneTests(TestCase):
         private_director = Director.objects.create(school=private_school, is_temp=True)
 
         # Only one school is available via all() due to the custom default manager.
-        self.assertQuerysetEqual(
-            School.objects.all(),
-            ["<School: School object>"]
-        )
+        self.assertSequenceEqual(School.objects.all(), [public_school])
 
         # Only one director is available via all() due to the custom default manager.
-        self.assertQuerysetEqual(
-            Director.objects.all(),
-            ["<Director: Director object>"]
-        )
+        self.assertSequenceEqual(Director.objects.all(), [public_director])
 
         self.assertEqual(public_director.school, public_school)
         self.assertEqual(public_school.director, public_director)
@@ -451,25 +428,6 @@ class OneToOneTests(TestCase):
         # its related school even if the default manager doesn't normally
         # allow it.
         self.assertEqual(private_school.director, private_director)
-
-        # If the manager is marked "use_for_related_fields", it'll get used instead
-        # of the "bare" queryset. Usually you'd define this as a property on the class,
-        # but this approximates that in a way that's easier in tests.
-        School._default_manager.use_for_related_fields = True
-        try:
-            private_director = Director._base_manager.get(pk=private_director.pk)
-            with self.assertRaises(School.DoesNotExist):
-                private_director.school
-        finally:
-            School._default_manager.use_for_related_fields = False
-
-        Director._default_manager.use_for_related_fields = True
-        try:
-            private_school = School._base_manager.get(pk=private_school.pk)
-            with self.assertRaises(Director.DoesNotExist):
-                private_school.director
-        finally:
-            Director._default_manager.use_for_related_fields = False
 
         School._meta.base_manager_name = 'objects'
         School._meta._expire_cache()
@@ -521,6 +479,10 @@ class OneToOneTests(TestCase):
             pk__in=Restaurant.objects.filter(place__id=r.place.pk)
         )
         self.assertSequenceEqual(q2, [r])
+        q3 = Restaurant.objects.filter(place__in=Place.objects.all())
+        self.assertSequenceEqual(q3, [r])
+        q4 = Restaurant.objects.filter(place__in=Place.objects.filter(id=r.pk))
+        self.assertSequenceEqual(q4, [r])
 
     def test_rel_pk_exact(self):
         r = Restaurant.objects.first()

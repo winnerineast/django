@@ -4,6 +4,7 @@ import warnings
 from django.db.backends.base.introspection import (
     BaseDatabaseIntrospection, FieldInfo, TableInfo,
 )
+from django.db.models.indexes import Index
 from django.utils.deprecation import RemovedInDjango21Warning
 
 field_size_re = re.compile(r'^\s*(?:var)?char\s*\(\s*(\d+)\s*\)\s*$')
@@ -18,7 +19,7 @@ def get_field_size(name):
 # This light wrapper "fakes" a dictionary interface, because some SQLite data
 # types include variables in them -- e.g. "varchar(30)" -- and can't be matched
 # as a simple dictionary lookup.
-class FlexibleFieldLookupDict(object):
+class FlexibleFieldLookupDict:
     # Maps SQL types to Django Field types. Some of the SQL types have multiple
     # entries here because SQLite allows for anything and doesn't normalize the
     # field type; it uses whatever was given.
@@ -57,9 +58,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     data_types_reverse = FlexibleFieldLookupDict()
 
     def get_table_list(self, cursor):
-        """
-        Returns a list of table and view names in the current database.
-        """
+        """Return a list of table and view names in the current database."""
         # Skip the sqlite_sequence system table used for autoincrement key
         # generation.
         cursor.execute("""
@@ -69,7 +68,10 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         return [TableInfo(row[0], row[1][0]) for row in cursor.fetchall()]
 
     def get_table_description(self, cursor, table_name):
-        "Returns a description of the table, with the DB-API cursor.description interface."
+        """
+        Return a description of the table with the DB-API cursor.description
+        interface.
+        """
         return [
             FieldInfo(
                 info['name'],
@@ -155,8 +157,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
     def get_key_columns(self, cursor, table_name):
         """
-        Returns a list of (column_name, referenced_table_name, referenced_column_name) for all
-        key columns in given table.
+        Return a list of (column_name, referenced_table_name, referenced_column_name)
+        for all key columns in given table.
         """
         key_columns = []
 
@@ -206,9 +208,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         return indexes
 
     def get_primary_key_column(self, cursor, table_name):
-        """
-        Get the column name of the primary key for the given table.
-        """
+        """Return the column name of the primary key for the given table."""
         # Don't use PRAGMA because that causes issues with some transactions
         cursor.execute("SELECT sql FROM sqlite_master WHERE tbl_name = %s AND type = %s", [table_name, "table"])
         row = cursor.fetchone()
@@ -237,7 +237,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
     def get_constraints(self, cursor, table_name):
         """
-        Retrieves any constraints or keys (unique, pk, fk, check, index) across one or more columns.
+        Retrieve any constraints or keys (unique, pk, fk, check, index) across
+        one or more columns.
         """
         constraints = {}
         # Get the index info
@@ -262,7 +263,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             # Add type and column orders for indexes
             if constraints[index]['index'] and not constraints[index]['unique']:
                 # SQLite doesn't support any index type other than b-tree
-                constraints[index]['type'] = 'btree'
+                constraints[index]['type'] = Index.suffix
                 cursor.execute(
                     "SELECT sql FROM sqlite_master "
                     "WHERE type='index' AND name=%s" % self.connection.ops.quote_name(index)

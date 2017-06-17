@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 import functools
 import re
 from itertools import chain
@@ -14,16 +12,15 @@ from django.db.migrations.questioner import MigrationQuestioner
 from django.db.migrations.utils import (
     COMPILED_REGEX_TYPE, RegexObject, get_migration_name_timestamp,
 )
-from django.utils import six
 
 from .topological_sort import stable_topological_sort
 
 
-class MigrationAutodetector(object):
+class MigrationAutodetector:
     """
-    Takes a pair of ProjectStates, and compares them to see what the
-    first would need doing to make it match the second (the second
-    usually being the project's current state).
+    Take a pair of ProjectStates and compare them to see what the first would
+    need doing to make it match the second (the second usually being the
+    project's current state).
 
     Note that this naturally operates on entire projects at a time,
     as it's likely that changes interact (for example, you can't
@@ -41,7 +38,7 @@ class MigrationAutodetector(object):
     def changes(self, graph, trim_to_apps=None, convert_apps=None, migration_name=None):
         """
         Main entry point to produce a list of applicable changes.
-        Takes a graph to base names on and an optional set of apps
+        Take a graph to base names on and an optional set of apps
         to try and restrict to (restriction is not guaranteed)
         """
         changes = self._detect_changes(convert_apps, graph)
@@ -93,9 +90,8 @@ class MigrationAutodetector(object):
     def only_relation_agnostic_fields(self, fields):
         """
         Return a definition of the fields that ignores field names and
-        what related fields actually relate to.
-        Used for detecting renames (as, of course, the related fields
-        change during renames)
+        what related fields actually relate to. Used for detecting renames (as,
+        of course, the related fields change during renames).
         """
         fields_def = []
         for name, field in sorted(fields):
@@ -107,7 +103,7 @@ class MigrationAutodetector(object):
 
     def _detect_changes(self, convert_apps=None, graph=None):
         """
-        Returns a dict of migration plans which will achieve the
+        Return a dict of migration plans which will achieve the
         change from from_state to to_state. The dict has app labels
         as keys and a list of migrations as values.
 
@@ -120,11 +116,10 @@ class MigrationAutodetector(object):
         graph is an optional argument that, if provided, can help improve
         dependency generation and avoid potential circular dependencies.
         """
-
         # The first phase is generating all the operations for each app
         # and gathering them into a big per-app list.
-        # We'll then go through that list later and order it and split
-        # into migrations to resolve dependencies caused by M2Ms and FKs.
+        # Then go through that list, order it, and split into migrations to
+        # resolve dependencies caused by M2Ms and FKs.
         self.generated_operations = {}
         self.altered_indexes = {}
 
@@ -138,7 +133,7 @@ class MigrationAutodetector(object):
         self.new_model_keys = []
         self.new_proxy_keys = []
         self.new_unmanaged_keys = []
-        for al, mn in sorted(self.from_state.models.keys()):
+        for al, mn in sorted(self.from_state.models):
             model = self.old_apps.get_model(al, mn)
             if not model._meta.managed:
                 self.old_unmanaged_keys.append((al, mn))
@@ -148,7 +143,7 @@ class MigrationAutodetector(object):
                 else:
                     self.old_model_keys.append((al, mn))
 
-        for al, mn in sorted(self.to_state.models.keys()):
+        for al, mn in sorted(self.to_state.models):
             model = self.new_apps.get_model(al, mn)
             if not model._meta.managed:
                 self.new_unmanaged_keys.append((al, mn))
@@ -201,9 +196,9 @@ class MigrationAutodetector(object):
 
     def _prepare_field_lists(self):
         """
-        Prepare field lists, and prepare a list of the fields that used
-        through models in the old state so we can make dependencies
-        from the through model deletion to the field that uses it.
+        Prepare field lists and a list of the fields that used through models
+        in the old state so dependencies can be made from the through model
+        deletion to the field that uses it.
         """
         self.kept_model_keys = set(self.old_model_keys).intersection(self.new_model_keys)
         self.kept_proxy_keys = set(self.old_proxy_keys).intersection(self.new_proxy_keys)
@@ -219,9 +214,7 @@ class MigrationAutodetector(object):
             self.new_field_keys.update((app_label, model_name, x) for x, y in new_model_state.fields)
 
     def _generate_through_model_map(self):
-        """
-        Through model map generation
-        """
+        """Through model map generation."""
         for app_label, model_name in sorted(self.old_model_keys):
             old_model_name = self.renamed_models.get((app_label, model_name), model_name)
             old_model_state = self.from_state.models[app_label, old_model_name]
@@ -237,13 +230,13 @@ class MigrationAutodetector(object):
 
     def _build_migration_list(self, graph=None):
         """
-        We need to chop the lists of operations up into migrations with
-        dependencies on each other. We do this by stepping up an app's list of
-        operations until we find one that has an outgoing dependency that isn't
-        in another app's migration yet (hasn't been chopped off its list). We
-        then chop off the operations before it into a migration and move onto
-        the next app. If we loop back around without doing anything, there's a
-        circular dependency (which _should_ be impossible as the operations are
+        Chop the lists of operations up into migrations with dependencies on
+        each other. Do this by going through an app's list of operations until
+        one is found that has an outgoing dependency that isn't in another
+        app's migration yet (hasn't been chopped off its list). Then chop off
+        the operations before it into a migration and move onto the next app.
+        If the loops completes without doing anything, there's a circular
+        dependency (which _should_ be impossible as the operations are
         all split at this point so they can't depend and be depended on).
         """
         self.migrations = {}
@@ -256,7 +249,7 @@ class MigrationAutodetector(object):
             # try to chop it off from the rest and continue, but we only
             # do this if we've already been through the list once before
             # without any chopping and nothing has changed.
-            for app_label in sorted(self.generated_operations.keys()):
+            for app_label in sorted(self.generated_operations):
                 chopped = []
                 dependencies = set()
                 for operation in list(self.generated_operations[app_label]):
@@ -309,7 +302,7 @@ class MigrationAutodetector(object):
                 # Make a migration! Well, only if there's stuff to put in it
                 if dependencies or chopped:
                     if not self.generated_operations[app_label] or chop_mode:
-                        subclass = type(str("Migration"), (Migration,), {"operations": [], "dependencies": []})
+                        subclass = type("Migration", (Migration,), {"operations": [], "dependencies": []})
                         instance = subclass("auto_%i" % (len(self.migrations.get(app_label, [])) + 1), app_label)
                         instance.dependencies = list(dependencies)
                         instance.operations = chopped
@@ -328,9 +321,8 @@ class MigrationAutodetector(object):
 
     def _sort_migrations(self):
         """
-        Reorder to make things possible. The order we have already isn't bad,
-        but we need to pull a few things around so FKs work nicely inside the
-        same app
+        Reorder to make things possible. Reordering may be needed so FKs work
+        nicely inside the same app.
         """
         for app_label, ops in sorted(self.generated_operations.items()):
             # construct a dependency graph for intra-app dependencies
@@ -363,8 +355,8 @@ class MigrationAutodetector(object):
 
     def check_dependency(self, operation, dependency):
         """
-        Returns ``True`` if the given operation depends on the given dependency,
-        ``False`` otherwise.
+        Return True if the given operation depends on the given dependency,
+        False otherwise.
         """
         # Created model
         if dependency[2] is None and dependency[3] is True:
@@ -434,8 +426,8 @@ class MigrationAutodetector(object):
 
     def swappable_first_key(self, item):
         """
-        Sorting key function that places potential swappable models first in
-        lists of created models (only real way to solve #22783)
+        Place potential swappable models first in lists of created models (only
+        real way to solve #22783).
         """
         try:
             model = self.new_apps.get_model(item[0], item[1])
@@ -454,9 +446,9 @@ class MigrationAutodetector(object):
 
     def generate_renamed_models(self):
         """
-        Finds any renamed models, and generates the operations for them,
-        and removes the old entry from the model lists.
-        Must be run before other model-level generation.
+        Find any renamed models, generate the operations for them, and remove
+        the old entry from the model lists. Must be run before other
+        model-level generation.
         """
         self.renamed_models = {}
         self.renamed_models_rel = {}
@@ -493,11 +485,11 @@ class MigrationAutodetector(object):
         """
         Find all new models (both managed and unmanaged) and make create
         operations for them as well as separate operations to create any
-        foreign key or M2M relationships (we'll optimize these back in later
-        if we can).
+        foreign key or M2M relationships (these are optimized later, if
+        possible).
 
-        We also defer any model options that refer to collections of fields
-        that might be deferred (e.g. unique_together, index_together).
+        Defer any model options that refer to collections of fields that might
+        be deferred (e.g. unique_together, index_together).
         """
         old_keys = set(self.old_model_keys).union(self.old_unmanaged_keys)
         added_models = set(self.new_model_keys) - old_keys
@@ -540,7 +532,7 @@ class MigrationAutodetector(object):
             ]
             # Depend on all bases
             for base in model_state.bases:
-                if isinstance(base, six.string_types) and "." in base:
+                if isinstance(base, str) and "." in base:
                     base_app_label, base_name = base.split(".", 1)
                     dependencies.append((base_app_label, base_name, None, True))
             # Depend on the other end of the primary key if it's a relation
@@ -646,10 +638,10 @@ class MigrationAutodetector(object):
 
     def generate_created_proxies(self):
         """
-        Makes CreateModel statements for proxy models.
-        We use the same statements as that way there's less code duplication,
-        but of course for proxy models we can skip all that pointless field
-        stuff and just chuck out an operation.
+        Make CreateModel statements for proxy models. Use the same statements
+        as that way there's less code duplication, but of course for proxy
+        models it's safe to skip all the pointless field stuff and just chuck
+        out an operation.
         """
         added = set(self.new_proxy_keys) - set(self.old_proxy_keys)
         for app_label, model_name in sorted(added):
@@ -661,7 +653,7 @@ class MigrationAutodetector(object):
             ]
             # Depend on all bases
             for base in model_state.bases:
-                if isinstance(base, six.string_types) and "." in base:
+                if isinstance(base, str) and "." in base:
                     base_app_label, base_name = base.split(".", 1)
                     dependencies.append((base_app_label, base_name, None, True))
             # Generate creation operation
@@ -682,10 +674,10 @@ class MigrationAutodetector(object):
         """
         Find all deleted models (managed and unmanaged) and make delete
         operations for them as well as separate operations to delete any
-        foreign key or M2M relationships (we'll optimize these back in later
-        if we can).
+        foreign key or M2M relationships (these are optimized later, if
+        possible).
 
-        We also bring forward removal of any model options that refer to
+        Also bring forward removal of any model options that refer to
         collections of fields - the inverse of generate_created_models().
         """
         new_keys = set(self.new_model_keys).union(self.new_unmanaged_keys)
@@ -772,9 +764,7 @@ class MigrationAutodetector(object):
             )
 
     def generate_deleted_proxies(self):
-        """
-        Makes DeleteModel statements for proxy models.
-        """
+        """Make DeleteModel options for proxy models."""
         deleted = set(self.old_proxy_keys) - set(self.new_proxy_keys)
         for app_label, model_name in sorted(deleted):
             model_state = self.from_state.models[app_label, model_name]
@@ -787,9 +777,7 @@ class MigrationAutodetector(object):
             )
 
     def generate_renamed_fields(self):
-        """
-        Works out renamed fields
-        """
+        """Work out renamed fields."""
         self.renamed_fields = {}
         for app_label, model_name, field_name in sorted(self.new_field_keys - self.old_field_keys):
             old_model_name = self.renamed_models.get((app_label, model_name), model_name)
@@ -820,9 +808,7 @@ class MigrationAutodetector(object):
                             break
 
     def generate_added_fields(self):
-        """
-        Fields that have been added
-        """
+        """Make AddField operations."""
         for app_label, model_name, field_name in sorted(self.new_field_keys - self.old_field_keys):
             self._generate_added_field(app_label, model_name, field_name)
 
@@ -858,9 +844,7 @@ class MigrationAutodetector(object):
         )
 
     def generate_removed_fields(self):
-        """
-        Fields that have been removed.
-        """
+        """Make RemoveField operations."""
         for app_label, model_name, field_name in sorted(self.old_field_keys - self.new_field_keys):
             self._generate_removed_field(app_label, model_name, field_name)
 
@@ -882,7 +866,8 @@ class MigrationAutodetector(object):
 
     def generate_altered_fields(self):
         """
-        Fields that have been altered.
+        Make AlterField operations, or possibly RemovedField/AddField if alter
+        isn's possible.
         """
         for app_label, model_name, field_name in sorted(self.old_field_keys.intersection(self.new_field_keys)):
             # Did the field change?
@@ -1060,9 +1045,9 @@ class MigrationAutodetector(object):
 
     def generate_altered_options(self):
         """
-        Works out if any non-schema-affecting options have changed and
-        makes an operation to represent them in state changes (in case Python
-        code in migrations needs them)
+        Work out if any non-schema-affecting options have changed and make an
+        operation to represent them in state changes (in case Python code in
+        migrations needs them).
         """
         models_to_check = self.kept_model_keys.union(
             self.kept_proxy_keys
@@ -1080,14 +1065,14 @@ class MigrationAutodetector(object):
             old_model_name = self.renamed_models.get((app_label, model_name), model_name)
             old_model_state = self.from_state.models[app_label, old_model_name]
             new_model_state = self.to_state.models[app_label, model_name]
-            old_options = dict(
-                option for option in old_model_state.options.items()
-                if option[0] in AlterModelOptions.ALTER_OPTION_KEYS
-            )
-            new_options = dict(
-                option for option in new_model_state.options.items()
-                if option[0] in AlterModelOptions.ALTER_OPTION_KEYS
-            )
+            old_options = {
+                key: value for key, value in old_model_state.options.items()
+                if key in AlterModelOptions.ALTER_OPTION_KEYS
+            }
+            new_options = {
+                key: value for key, value in new_model_state.options.items()
+                if key in AlterModelOptions.ALTER_OPTION_KEYS
+            }
             if old_options != new_options:
                 self.add_operation(
                     app_label,
@@ -1140,9 +1125,9 @@ class MigrationAutodetector(object):
 
     def arrange_for_graph(self, changes, graph, migration_name=None):
         """
-        Takes in a result from changes() and a MigrationGraph,
-        and fixes the names and dependencies of the changes so they
-        extend the graph from the leaf nodes for each app.
+        Take a result from changes() and a MigrationGraph, and fix the names
+        and dependencies of the changes so they extend the graph from the leaf
+        nodes for each app.
         """
         leaves = graph.leaf_nodes()
         name_map = {}
@@ -1189,11 +1174,10 @@ class MigrationAutodetector(object):
 
     def _trim_to_apps(self, changes, app_labels):
         """
-        Takes changes from arrange_for_graph and set of app labels and
-        returns a modified set of changes which trims out as many migrations
-        that are not in app_labels as possible.
-        Note that some other migrations may still be present, as they may be
-        required dependencies.
+        Take changes from arrange_for_graph() and set of app labels, and return
+        a modified set of changes which trims out as many migrations that are
+        not in app_labels as possible. Note that some other migrations may
+        still be present as they may be required dependencies.
         """
         # Gather other app dependencies in a first pass
         app_dependencies = {}
@@ -1209,7 +1193,7 @@ class MigrationAutodetector(object):
             for app_label in list(required_apps):
                 required_apps.update(app_dependencies.get(app_label, set()))
         # Remove all migrations that aren't needed
-        for app_label in list(changes.keys()):
+        for app_label in list(changes):
             if app_label not in required_apps:
                 del changes[app_label]
         return changes
@@ -1217,10 +1201,9 @@ class MigrationAutodetector(object):
     @classmethod
     def suggest_name(cls, ops):
         """
-        Given a set of operations, suggests a name for the migration
-        they might represent. Names are not guaranteed to be unique,
-        but we put some effort in to the fallback name to avoid VCS conflicts
-        if we can.
+        Given a set of operations, suggest a name for the migration they might
+        represent. Names are not guaranteed to be unique, but put some effort
+        into the fallback name to avoid VCS conflicts if possible.
         """
         if len(ops) == 1:
             if isinstance(ops[0], operations.CreateModel):
@@ -1239,8 +1222,8 @@ class MigrationAutodetector(object):
     @classmethod
     def parse_number(cls, name):
         """
-        Given a migration name, tries to extract a number from the
-        beginning of it. If no number found, returns None.
+        Given a migration name, try to extract a number from the beginning of
+        it. If no number is found, return None.
         """
         match = re.match(r'^\d+', name)
         if match:

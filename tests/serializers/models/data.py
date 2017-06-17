@@ -4,8 +4,6 @@ The following classes are for testing basic data marshalling, including
 NULL values, where allowed.
 The basic idea is to have a model for each Django data type.
 """
-from __future__ import unicode_literals
-
 from django.contrib.contenttypes.fields import (
     GenericForeignKey, GenericRelation,
 )
@@ -190,11 +188,13 @@ class BooleanPKData(models.Model):
 class CharPKData(models.Model):
     data = models.CharField(max_length=30, primary_key=True)
 
-# class DatePKData(models.Model):
-#    data = models.DateField(primary_key=True)
 
-# class DateTimePKData(models.Model):
-#    data = models.DateTimeField(primary_key=True)
+class DatePKData(models.Model):
+    data = models.DateField(primary_key=True)
+
+
+class DateTimePKData(models.Model):
+    data = models.DateTimeField(primary_key=True)
 
 
 class DecimalPKData(models.Model):
@@ -279,7 +279,7 @@ class ModifyingSaveData(models.Model):
         (#4459).
         """
         self.data = 666
-        super(ModifyingSaveData, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
 # Tests for serialization of models using inheritance.
 # Regression for #7202, #7350

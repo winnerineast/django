@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 from collections import defaultdict
 
 from django.contrib.contenttypes.models import ContentType
@@ -13,12 +11,10 @@ from django.db.models.fields.related import (
     lazy_related_operation,
 )
 from django.db.models.query_utils import PathInfo
-from django.utils.encoding import force_text, python_2_unicode_compatible
 from django.utils.functional import cached_property
 
 
-@python_2_unicode_compatible
-class GenericForeignKey(object):
+class GenericForeignKey:
     """
     Provide a generic many-to-one relation through the ``content_type`` and
     ``object_id`` fields.
@@ -100,7 +96,8 @@ class GenericForeignKey(object):
         except FieldDoesNotExist:
             return [
                 checks.Error(
-                    "The GenericForeignKey object ID references the non-existent field '%s'." % self.fk_field,
+                    "The GenericForeignKey object ID references the "
+                    "nonexistent field '%s'." % self.fk_field,
                     obj=self,
                     id='contenttypes.E001',
                 )
@@ -118,7 +115,8 @@ class GenericForeignKey(object):
         except FieldDoesNotExist:
             return [
                 checks.Error(
-                    "The GenericForeignKey content type references the non-existent field '%s.%s'." % (
+                    "The GenericForeignKey content type references the "
+                    "nonexistent field '%s.%s'." % (
                         self.model._meta.object_name, self.ct_field
                     ),
                     obj=self,
@@ -205,7 +203,7 @@ class GenericForeignKey(object):
                         model)
 
         return (ret_val,
-                lambda obj: (obj._get_pk_val(), obj.__class__),
+                lambda obj: (obj.pk, obj.__class__),
                 gfk_key,
                 True,
                 self.name)
@@ -231,7 +229,7 @@ class GenericForeignKey(object):
             rel_obj = None
         else:
             if rel_obj and (ct_id != self.get_content_type(obj=rel_obj, using=instance._state.db).id or
-                            rel_obj._meta.pk.to_python(pk_val) != rel_obj._get_pk_val()):
+                            rel_obj._meta.pk.to_python(pk_val) != rel_obj.pk):
                 rel_obj = None
 
         if rel_obj is not None:
@@ -251,7 +249,7 @@ class GenericForeignKey(object):
         fk = None
         if value is not None:
             ct = self.get_content_type(obj=value)
-            fk = value._get_pk_val()
+            fk = value.pk
 
         setattr(instance, self.ct_field, ct)
         setattr(instance, self.fk_field, fk)
@@ -264,12 +262,10 @@ class GenericRel(ForeignObjectRel):
     """
 
     def __init__(self, field, to, related_name=None, related_query_name=None, limit_choices_to=None):
-        super(GenericRel, self).__init__(
-            field, to,
-            related_name=related_query_name or '+',
+        super().__init__(
+            field, to, related_name=related_query_name or '+',
             related_query_name=related_query_name,
-            limit_choices_to=limit_choices_to,
-            on_delete=DO_NOTHING,
+            limit_choices_to=limit_choices_to, on_delete=DO_NOTHING,
         )
 
 
@@ -306,15 +302,14 @@ class GenericRelation(ForeignObject):
         # isn't direct, the join is generated reverse along foreign key. So,
         # the from_field is object_id field, to_field is pk because of the
         # reverse join.
-        super(GenericRelation, self).__init__(
-            to, from_fields=[object_id_field], to_fields=[], **kwargs)
+        super().__init__(to, from_fields=[object_id_field], to_fields=[], **kwargs)
 
         self.object_id_field_name = object_id_field
         self.content_type_field_name = content_type_field
         self.for_concrete_model = for_concrete_model
 
     def check(self, **kwargs):
-        errors = super(GenericRelation, self).check(**kwargs)
+        errors = super().check(**kwargs)
         errors.extend(self._check_generic_foreign_key_existence())
         return errors
 
@@ -402,11 +397,11 @@ class GenericRelation(ForeignObject):
 
     def value_to_string(self, obj):
         qs = getattr(obj, self.name).all()
-        return force_text([instance._get_pk_val() for instance in qs])
+        return str([instance.pk for instance in qs])
 
     def contribute_to_class(self, cls, name, **kwargs):
         kwargs['private_only'] = True
-        super(GenericRelation, self).contribute_to_class(cls, name, **kwargs)
+        super().contribute_to_class(cls, name, **kwargs)
         self.model = cls
         setattr(cls, self.name, ReverseGenericManyToOneDescriptor(self.remote_field))
 
@@ -483,7 +478,7 @@ def create_generic_related_manager(superclass, rel):
 
     class GenericRelatedObjectManager(superclass):
         def __init__(self, instance=None):
-            super(GenericRelatedObjectManager, self).__init__()
+            super().__init__()
 
             self.instance = instance
 
@@ -495,17 +490,15 @@ def create_generic_related_manager(superclass, rel):
             self.content_type_field_name = rel.field.content_type_field_name
             self.object_id_field_name = rel.field.object_id_field_name
             self.prefetch_cache_name = rel.field.attname
-            self.pk_val = instance._get_pk_val()
+            self.pk_val = instance.pk
 
             self.core_filters = {
                 '%s__pk' % self.content_type_field_name: content_type.id,
                 self.object_id_field_name: self.pk_val,
             }
 
-        def __call__(self, **kwargs):
-            # We use **kwargs rather than a kwarg argument to enforce the
-            # `manager='manager_name'` syntax.
-            manager = getattr(self.model, kwargs.pop('manager'))
+        def __call__(self, *, manager):
+            manager = getattr(self.model, manager)
             manager_class = create_generic_related_manager(manager.__class__, rel)
             return manager_class(instance=self.instance)
         do_not_call_in_templates = True
@@ -524,19 +517,19 @@ def create_generic_related_manager(superclass, rel):
             try:
                 return self.instance._prefetched_objects_cache[self.prefetch_cache_name]
             except (AttributeError, KeyError):
-                queryset = super(GenericRelatedObjectManager, self).get_queryset()
+                queryset = super().get_queryset()
                 return self._apply_rel_filters(queryset)
 
         def get_prefetch_queryset(self, instances, queryset=None):
             if queryset is None:
-                queryset = super(GenericRelatedObjectManager, self).get_queryset()
+                queryset = super().get_queryset()
 
             queryset._add_hints(instance=instances[0])
             queryset = queryset.using(queryset._db or self._db)
 
             query = {
                 '%s__pk' % self.content_type_field_name: self.content_type.id,
-                '%s__in' % self.object_id_field_name: set(obj._get_pk_val() for obj in instances)
+                '%s__in' % self.object_id_field_name: {obj.pk for obj in instances}
             }
 
             # We (possibly) need to convert object IDs to the type of the
@@ -544,12 +537,11 @@ def create_generic_related_manager(superclass, rel):
             object_id_converter = instances[0]._meta.pk.to_python
             return (queryset.filter(**query),
                     lambda relobj: object_id_converter(getattr(relobj, self.object_id_field_name)),
-                    lambda obj: obj._get_pk_val(),
+                    lambda obj: obj.pk,
                     False,
                     self.prefetch_cache_name)
 
-        def add(self, *objs, **kwargs):
-            bulk = kwargs.pop('bulk', True)
+        def add(self, *objs, bulk=True):
             db = router.db_for_write(self.model, instance=self.instance)
 
             def check_and_update_obj(obj):
@@ -582,15 +574,13 @@ def create_generic_related_manager(superclass, rel):
                         obj.save()
         add.alters_data = True
 
-        def remove(self, *objs, **kwargs):
+        def remove(self, *objs, bulk=True):
             if not objs:
                 return
-            bulk = kwargs.pop('bulk', True)
             self._clear(self.filter(pk__in=[o.pk for o in objs]), bulk)
         remove.alters_data = True
 
-        def clear(self, **kwargs):
-            bulk = kwargs.pop('bulk', True)
+        def clear(self, *, bulk=True):
             self._clear(self, bulk)
         clear.alters_data = True
 
@@ -607,13 +597,10 @@ def create_generic_related_manager(superclass, rel):
                         obj.delete()
         _clear.alters_data = True
 
-        def set(self, objs, **kwargs):
+        def set(self, objs, *, bulk=True, clear=False):
             # Force evaluation of `objs` in case it's a queryset whose value
             # could be affected by `manager.clear()`. Refs #19816.
             objs = tuple(objs)
-
-            bulk = kwargs.pop('bulk', True)
-            clear = kwargs.pop('clear', False)
 
             db = router.db_for_write(self.model, instance=self.instance)
             with transaction.atomic(using=db, savepoint=False):
@@ -637,21 +624,21 @@ def create_generic_related_manager(superclass, rel):
             kwargs[self.content_type_field_name] = self.content_type
             kwargs[self.object_id_field_name] = self.pk_val
             db = router.db_for_write(self.model, instance=self.instance)
-            return super(GenericRelatedObjectManager, self).using(db).create(**kwargs)
+            return super().using(db).create(**kwargs)
         create.alters_data = True
 
         def get_or_create(self, **kwargs):
             kwargs[self.content_type_field_name] = self.content_type
             kwargs[self.object_id_field_name] = self.pk_val
             db = router.db_for_write(self.model, instance=self.instance)
-            return super(GenericRelatedObjectManager, self).using(db).get_or_create(**kwargs)
+            return super().using(db).get_or_create(**kwargs)
         get_or_create.alters_data = True
 
         def update_or_create(self, **kwargs):
             kwargs[self.content_type_field_name] = self.content_type
             kwargs[self.object_id_field_name] = self.pk_val
             db = router.db_for_write(self.model, instance=self.instance)
-            return super(GenericRelatedObjectManager, self).using(db).update_or_create(**kwargs)
+            return super().using(db).update_or_create(**kwargs)
         update_or_create.alters_data = True
 
     return GenericRelatedObjectManager

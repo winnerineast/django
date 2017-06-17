@@ -1,19 +1,18 @@
-from __future__ import unicode_literals
-
 import datetime
 import pickle
 from decimal import Decimal
 from operator import attrgetter
+from unittest import mock
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldError
 from django.db import connection
 from django.db.models import (
-    Avg, Count, F, Max, Q, StdDev, Sum, Value, Variance,
+    Avg, Case, Count, DecimalField, F, IntegerField, Max, Q, StdDev, Sum,
+    Value, Variance, When,
 )
 from django.test import TestCase, skipUnlessAnyDBFeature, skipUnlessDBFeature
 from django.test.utils import Approximate
-from django.utils import six
 
 from .models import (
     Alfa, Author, Book, Bravo, Charlie, Clues, Entries, HardbackBook, ItemTag,
@@ -104,8 +103,21 @@ class AggregationTests(TestCase):
         s3.books.add(cls.b3, cls.b4, cls.b6)
 
     def assertObjectAttrs(self, obj, **kwargs):
-        for attr, value in six.iteritems(kwargs):
+        for attr, value in kwargs.items():
             self.assertEqual(getattr(obj, attr), value)
+
+    def test_annotation_with_value(self):
+        values = Book.objects.filter(
+            name='Practical Django Projects',
+        ).annotate(
+            discount_price=F('price') * 2,
+        ).values(
+            'discount_price',
+        ).annotate(sum_discount=Sum('discount_price'))
+        self.assertSequenceEqual(
+            values,
+            [{'discount_price': Decimal('59.38'), 'sum_discount': Decimal('59.38')}]
+        )
 
     def test_aggregates_in_where_clause(self):
         """
@@ -356,6 +368,51 @@ class AggregationTests(TestCase):
         self.assertEqual(
             Book.objects.annotate(c=Count('authors')).values('c').aggregate(Max('c')),
             {'c__max': 3}
+        )
+
+    def test_conditional_aggreate(self):
+        # Conditional aggregation of a grouped queryset.
+        self.assertEqual(
+            Book.objects.annotate(c=Count('authors')).values('pk').aggregate(test=Sum(
+                Case(When(c__gt=1, then=1), output_field=IntegerField())
+            ))['test'],
+            3
+        )
+
+    def test_sliced_conditional_aggregate(self):
+        self.assertEqual(
+            Author.objects.all()[:5].aggregate(test=Sum(Case(
+                When(age__lte=35, then=1), output_field=IntegerField()
+            )))['test'],
+            3
+        )
+
+    def test_annotated_conditional_aggregate(self):
+        annotated_qs = Book.objects.annotate(discount_price=F('price') * 0.75)
+        self.assertAlmostEqual(
+            annotated_qs.aggregate(test=Avg(Case(
+                When(pages__lt=400, then='discount_price'),
+                output_field=DecimalField()
+            )))['test'],
+            22.27, places=2
+        )
+
+    def test_distinct_conditional_aggregate(self):
+        self.assertEqual(
+            Book.objects.distinct().aggregate(test=Avg(Case(
+                When(price=Decimal('29.69'), then='pages'),
+                output_field=IntegerField()
+            )))['test'],
+            325
+        )
+
+    def test_conditional_aggregate_on_complex_condition(self):
+        self.assertEqual(
+            Book.objects.distinct().aggregate(test=Avg(Case(
+                When(Q(price__gte=Decimal('29')) & Q(price__lt=Decimal('30')), then='pages'),
+                output_field=IntegerField()
+            )))['test'],
+            325
         )
 
     def test_decimal_aggregate_annotation_filter(self):
@@ -1205,6 +1262,42 @@ class AggregationTests(TestCase):
                 ('The Definitive Guide to Django: Web Development Done Right', 2)
             ]
         )
+
+    @skipUnlessDBFeature('allows_group_by_selected_pks')
+    def test_aggregate_ummanaged_model_columns(self):
+        """
+        Unmanaged models are sometimes used to represent database views which
+        may not allow grouping by selected primary key.
+        """
+        def assertQuerysetResults(queryset):
+            self.assertEqual(
+                [(b.name, b.num_authors) for b in queryset.order_by('name')],
+                [
+                    ('Artificial Intelligence: A Modern Approach', 2),
+                    ('Paradigms of Artificial Intelligence Programming: Case Studies in Common Lisp', 1),
+                    ('Practical Django Projects', 1),
+                    ('Python Web Development with Django', 3),
+                    ('Sams Teach Yourself Django in 24 Hours', 1),
+                    ('The Definitive Guide to Django: Web Development Done Right', 2),
+                ]
+            )
+        queryset = Book.objects.select_related('contact').annotate(num_authors=Count('authors'))
+        # Unmanaged origin model.
+        with mock.patch.object(Book._meta, 'managed', False):
+            _, _, grouping = queryset.query.get_compiler(using='default').pre_sql_setup()
+            self.assertEqual(len(grouping), len(Book._meta.fields) + 1)
+            for index, field in enumerate(Book._meta.fields):
+                self.assertIn(field.name, grouping[index][0])
+            self.assertIn(Author._meta.pk.name, grouping[-1][0])
+            assertQuerysetResults(queryset)
+        # Unmanaged related model.
+        with mock.patch.object(Author._meta, 'managed', False):
+            _, _, grouping = queryset.query.get_compiler(using='default').pre_sql_setup()
+            self.assertEqual(len(grouping), len(Author._meta.fields) + 1)
+            self.assertIn(Book._meta.pk.name, grouping[0][0])
+            for index, field in enumerate(Author._meta.fields):
+                self.assertIn(field.name, grouping[index + 1][0])
+            assertQuerysetResults(queryset)
 
     def test_reverse_join_trimming(self):
         qs = Author.objects.annotate(Count('book_contact_set__contact'))

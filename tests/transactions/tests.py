@@ -1,7 +1,3 @@
-from __future__ import unicode_literals
-
-import os
-import signal
 import sys
 import threading
 import time
@@ -220,18 +216,6 @@ class AtomicTests(TransactionTestCase):
             transaction.savepoint_rollback(sid)
         self.assertQuerysetEqual(Reporter.objects.all(), ['<Reporter: Tintin>'])
 
-    @skipIf(sys.platform.startswith('win'), "Windows doesn't have signals.")
-    def test_rollback_on_keyboardinterrupt(self):
-        try:
-            with transaction.atomic():
-                Reporter.objects.create(first_name='Tintin')
-                # Send SIGINT (simulate Ctrl-C). One call isn't enough.
-                os.kill(os.getpid(), signal.SIGINT)
-                os.kill(os.getpid(), signal.SIGINT)
-        except KeyboardInterrupt:
-            pass
-        self.assertEqual(Reporter.objects.all().count(), 0)
-
 
 class AtomicInsideTransactionTests(AtomicTests):
     """All basic tests for atomic should also pass within an existing transaction."""
@@ -377,18 +361,17 @@ class AtomicMySQLTests(TransactionTestCase):
     @skipIf(threading is None, "Test requires threading")
     def test_implicit_savepoint_rollback(self):
         """MySQL implicitly rolls back savepoints when it deadlocks (#22291)."""
+        Reporter.objects.create(id=1)
+        Reporter.objects.create(id=2)
 
-        other_thread_ready = threading.Event()
+        main_thread_ready = threading.Event()
 
         def other_thread():
             try:
                 with transaction.atomic():
-                    Reporter.objects.create(id=1, first_name="Tintin")
-                    other_thread_ready.set()
-                    # We cannot synchronize the two threads with an event here
-                    # because the main thread locks. Sleep for a little while.
-                    time.sleep(1)
-                    # 2) ... and this line deadlocks. (see below for 1)
+                    Reporter.objects.select_for_update().get(id=1)
+                    main_thread_ready.wait()
+                    # 1) This line locks... (see below for 2)
                     Reporter.objects.exclude(id=1).update(id=2)
             finally:
                 # This is the thread-local connection, not the main connection.
@@ -396,14 +379,18 @@ class AtomicMySQLTests(TransactionTestCase):
 
         other_thread = threading.Thread(target=other_thread)
         other_thread.start()
-        other_thread_ready.wait()
 
         with self.assertRaisesMessage(OperationalError, 'Deadlock found'):
             # Double atomic to enter a transaction and create a savepoint.
             with transaction.atomic():
                 with transaction.atomic():
-                    # 1) This line locks... (see above for 2)
-                    Reporter.objects.create(id=1, first_name="Tintin")
+                    Reporter.objects.select_for_update().get(id=2)
+                    main_thread_ready.set()
+                    # The two threads can't be synchronized with an event here
+                    # because the other thread locks. Sleep for a little while.
+                    time.sleep(1)
+                    # 2) ... and this line deadlocks. (see above for 1)
+                    Reporter.objects.exclude(id=2).update(id=1)
 
         other_thread.join()
 
@@ -415,7 +402,7 @@ class AtomicMiscTests(TransactionTestCase):
     def test_wrap_callable_instance(self):
         """#20028 -- Atomic must support wrapping callable instances."""
 
-        class Callable(object):
+        class Callable:
             def __call__(self):
                 pass
 

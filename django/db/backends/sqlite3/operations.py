@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 import datetime
 import uuid
 
@@ -9,7 +7,7 @@ from django.db import utils
 from django.db.backends import utils as backend_utils
 from django.db.backends.base.operations import BaseDatabaseOperations
 from django.db.models import aggregates, fields
-from django.utils import six, timezone
+from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime, parse_time
 from django.utils.duration import duration_string
 
@@ -23,8 +21,12 @@ class DatabaseOperations(BaseDatabaseOperations):
         If there's only a single field to insert, the limit is 500
         (SQLITE_MAX_COMPOUND_SELECT).
         """
-        limit = 999 if len(fields) > 1 else 500
-        return (limit // len(fields)) if len(fields) > 0 else len(objs)
+        if len(fields) == 1:
+            return 500
+        elif len(fields) > 1:
+            return self.connection.features.max_query_params // len(fields)
+        else:
+            return len(objs)
 
     def check_expression_support(self, expression):
         bad_fields = (fields.DateField, fields.DateTimeField, fields.TimeField)
@@ -45,54 +47,50 @@ class DatabaseOperations(BaseDatabaseOperations):
                     pass
 
     def date_extract_sql(self, lookup_type, field_name):
-        # sqlite doesn't support extract, so we fake it with the user-defined
-        # function django_date_extract that's registered in connect(). Note that
-        # single quotes are used because this is a string (and could otherwise
-        # cause a collision with a field name).
+        """
+        Support EXTRACT with a user-defined function django_date_extract()
+        that's registered in connect(). Use single quotes because this is a
+        string and could otherwise cause a collision with a field name.
+        """
         return "django_date_extract('%s', %s)" % (lookup_type.lower(), field_name)
 
     def date_interval_sql(self, timedelta):
         return "'%s'" % duration_string(timedelta), []
 
     def format_for_duration_arithmetic(self, sql):
-        """Do nothing here, we will handle it in the custom function."""
+        """Do nothing since formatting is handled in the custom function."""
         return sql
 
     def date_trunc_sql(self, lookup_type, field_name):
-        # sqlite doesn't support DATE_TRUNC, so we fake it with a user-defined
-        # function django_date_trunc that's registered in connect(). Note that
-        # single quotes are used because this is a string (and could otherwise
-        # cause a collision with a field name).
         return "django_date_trunc('%s', %s)" % (lookup_type.lower(), field_name)
 
     def time_trunc_sql(self, lookup_type, field_name):
-        # sqlite doesn't support DATE_TRUNC, so we fake it with a user-defined
-        # function django_date_trunc that's registered in connect(). Note that
-        # single quotes are used because this is a string (and could otherwise
-        # cause a collision with a field name).
         return "django_time_trunc('%s', %s)" % (lookup_type.lower(), field_name)
 
+    def _convert_tzname_to_sql(self, tzname):
+        return "'%s'" % tzname if settings.USE_TZ else 'NULL'
+
     def datetime_cast_date_sql(self, field_name, tzname):
-        return "django_datetime_cast_date(%s, %%s)" % field_name, [tzname]
+        return "django_datetime_cast_date(%s, %s)" % (
+            field_name, self._convert_tzname_to_sql(tzname),
+        )
 
     def datetime_cast_time_sql(self, field_name, tzname):
-        return "django_datetime_cast_time(%s, %%s)" % field_name, [tzname]
+        return "django_datetime_cast_time(%s, %s)" % (
+            field_name, self._convert_tzname_to_sql(tzname),
+        )
 
     def datetime_extract_sql(self, lookup_type, field_name, tzname):
-        # Same comment as in date_extract_sql.
-        return "django_datetime_extract('%s', %s, %%s)" % (
-            lookup_type.lower(), field_name), [tzname]
+        return "django_datetime_extract('%s', %s, %s)" % (
+            lookup_type.lower(), field_name, self._convert_tzname_to_sql(tzname),
+        )
 
     def datetime_trunc_sql(self, lookup_type, field_name, tzname):
-        # Same comment as in date_trunc_sql.
-        return "django_datetime_trunc('%s', %s, %%s)" % (
-            lookup_type.lower(), field_name), [tzname]
+        return "django_datetime_trunc('%s', %s, %s)" % (
+            lookup_type.lower(), field_name, self._convert_tzname_to_sql(tzname),
+        )
 
     def time_extract_sql(self, lookup_type, field_name):
-        # sqlite doesn't support extract, so we fake it with the user-defined
-        # function django_time_extract that's registered in connect(). Note that
-        # single quotes are used because this is a string (and could otherwise
-        # cause a collision with a field name).
         return "django_time_extract('%s', %s)" % (lookup_type.lower(), field_name)
 
     def pk_default_value(self):
@@ -134,10 +132,9 @@ class DatabaseOperations(BaseDatabaseOperations):
             if isinstance(params, (list, tuple)):
                 params = self._quote_params_for_last_executed_query(params)
             else:
-                keys = params.keys()
                 values = tuple(params.values())
                 values = self._quote_params_for_last_executed_query(values)
-                params = dict(zip(keys, values))
+                params = dict(zip(params, values))
             return sql % params
         # For consistency with SQLiteCursorWrapper.execute(), just return sql
         # when there are no parameters. See #13648 and #17158.
@@ -180,7 +177,7 @@ class DatabaseOperations(BaseDatabaseOperations):
             else:
                 raise ValueError("SQLite backend does not support timezone-aware datetimes when USE_TZ is False.")
 
-        return six.text_type(value)
+        return str(value)
 
     def adapt_timefield_value(self, value):
         if value is None:
@@ -194,10 +191,10 @@ class DatabaseOperations(BaseDatabaseOperations):
         if timezone.is_aware(value):
             raise ValueError("SQLite backend does not support timezone-aware times.")
 
-        return six.text_type(value)
+        return str(value)
 
     def get_db_converters(self, expression):
-        converters = super(DatabaseOperations, self).get_db_converters(expression)
+        converters = super().get_db_converters(expression)
         internal_type = expression.output_field.get_internal_type()
         if internal_type == 'DateTimeField':
             converters.append(self.convert_datetimefield_value)
@@ -258,7 +255,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         # user-defined function django_power that's registered in connect().
         if connector == '^':
             return 'django_power(%s)' % ','.join(sub_expressions)
-        return super(DatabaseOperations, self).combine_expression(connector, sub_expressions)
+        return super().combine_expression(connector, sub_expressions)
 
     def combine_duration_expression(self, connector, sub_expressions):
         if connector not in ['+', '-']:

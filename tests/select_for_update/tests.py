@@ -1,15 +1,15 @@
-from __future__ import unicode_literals
-
 import threading
 import time
+from unittest import mock
 
 from multiple_database.routers import TestRouter
 
 from django.db import (
-    DatabaseError, connection, connections, router, transaction,
+    DatabaseError, NotSupportedError, connection, connections, router,
+    transaction,
 )
 from django.test import (
-    TransactionTestCase, mock, override_settings, skipIfDBFeature,
+    TransactionTestCase, override_settings, skipIfDBFeature,
     skipUnlessDBFeature,
 )
 from django.test.utils import CaptureQueriesContext
@@ -134,10 +134,10 @@ class SelectForUpdateTests(TransactionTestCase):
     @skipUnlessDBFeature('has_select_for_update')
     def test_unsupported_nowait_raises_error(self):
         """
-        DatabaseError is raised if a SELECT...FOR UPDATE NOWAIT is run on
+        NotSupportedError is raised if a SELECT...FOR UPDATE NOWAIT is run on
         a database backend that supports FOR UPDATE but not NOWAIT.
         """
-        with self.assertRaisesMessage(DatabaseError, 'NOWAIT is not supported on this database backend.'):
+        with self.assertRaisesMessage(NotSupportedError, 'NOWAIT is not supported on this database backend.'):
             with transaction.atomic():
                 Person.objects.select_for_update(nowait=True).get()
 
@@ -145,10 +145,10 @@ class SelectForUpdateTests(TransactionTestCase):
     @skipUnlessDBFeature('has_select_for_update')
     def test_unsupported_skip_locked_raises_error(self):
         """
-        DatabaseError is raised if a SELECT...FOR UPDATE SKIP LOCKED is run on
-        a database backend that supports FOR UPDATE but not SKIP LOCKED.
+        NotSupportedError is raised if a SELECT...FOR UPDATE SKIP LOCKED is run
+        on a database backend that supports FOR UPDATE but not SKIP LOCKED.
         """
-        with self.assertRaisesMessage(DatabaseError, 'SKIP LOCKED is not supported on this database backend.'):
+        with self.assertRaisesMessage(NotSupportedError, 'SKIP LOCKED is not supported on this database backend.'):
             with transaction.atomic():
                 Person.objects.select_for_update(skip_locked=True).get()
 
@@ -179,6 +179,20 @@ class SelectForUpdateTests(TransactionTestCase):
         people = Person.objects.all().select_for_update()
         with self.assertRaises(transaction.TransactionManagementError):
             list(people)
+
+    @skipUnlessDBFeature('supports_select_for_update_with_limit')
+    def test_select_for_update_with_limit(self):
+        other = Person.objects.create(name='Grappeli')
+        with transaction.atomic():
+            qs = list(Person.objects.all().order_by('pk').select_for_update()[1:2])
+            self.assertEqual(qs[0], other)
+
+    @skipIfDBFeature('supports_select_for_update_with_limit')
+    def test_unsupported_select_for_update_with_limit(self):
+        msg = 'LIMIT/OFFSET is not supported with select_for_update on this database backend.'
+        with self.assertRaisesMessage(NotSupportedError, msg):
+            with transaction.atomic():
+                list(Person.objects.all().order_by('pk').select_for_update()[1:2])
 
     def run_select_for_update(self, status, **kwargs):
         """

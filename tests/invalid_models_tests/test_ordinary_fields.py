@@ -1,11 +1,8 @@
-# -*- encoding: utf-8 -*-
-from __future__ import unicode_literals
-
 import unittest
 
 from django.core.checks import Error, Warning as DjangoWarning
 from django.db import connection, models
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, skipIfDBFeature
 from django.test.utils import isolate_apps, override_settings
 from django.utils.timezone import now
 
@@ -142,6 +139,21 @@ class CharFieldTests(TestCase):
         ]
         self.assertEqual(errors, expected)
 
+    def test_str_max_length_type(self):
+        class Model(models.Model):
+            field = models.CharField(max_length=True)
+
+        field = Model._meta.get_field('field')
+        errors = field.check()
+        expected = [
+            Error(
+                "'max_length' must be a positive integer.",
+                obj=field,
+                id='fields.E121'
+            ),
+        ]
+        self.assertEqual(errors, expected)
+
     def test_non_iterable_choices(self):
         class Model(models.Model):
             field = models.CharField(max_length=10, choices='bad')
@@ -158,7 +170,7 @@ class CharFieldTests(TestCase):
         self.assertEqual(errors, expected)
 
     def test_iterable_of_iterable_choices(self):
-        class ThingItem(object):
+        class ThingItem:
             def __init__(self, value, display):
                 self.value = value
                 self.display = display
@@ -169,7 +181,7 @@ class CharFieldTests(TestCase):
             def __len__(self):
                 return 2
 
-        class Things(object):
+        class Things:
             def __iter__(self):
                 return (x for x in [ThingItem(1, 2), ThingItem(3, 4)])
 
@@ -208,6 +220,23 @@ class CharFieldTests(TestCase):
         ]
         self.assertEqual(errors, expected)
 
+    def test_bad_validators(self):
+        class Model(models.Model):
+            field = models.CharField(max_length=10, validators=[True])
+
+        field = Model._meta.get_field('field')
+        self.assertEqual(field.check(), [
+            Error(
+                "All 'validators' must be callable.",
+                hint=(
+                    "validators[0] (True) isn't a function or instance of a "
+                    "validator class."
+                ),
+                obj=field,
+                id='fields.E008',
+            ),
+        ])
+
     @unittest.skipUnless(connection.vendor == 'mysql',
                          "Test valid only for MySQL")
     def test_too_long_char_field_under_mysql(self):
@@ -217,7 +246,7 @@ class CharFieldTests(TestCase):
             field = models.CharField(unique=True, max_length=256)
 
         field = Model._meta.get_field('field')
-        validator = DatabaseValidation(connection=None)
+        validator = DatabaseValidation(connection=connection)
         errors = validator.check_field(field)
         expected = [
             Error(
@@ -617,3 +646,26 @@ class TimeFieldTests(TestCase):
     @override_settings(USE_TZ=True)
     def test_fix_default_value_tz(self):
         self.test_fix_default_value()
+
+
+@isolate_apps('invalid_models_tests')
+class TextFieldTests(TestCase):
+
+    @skipIfDBFeature('supports_index_on_text_field')
+    def test_max_length_warning(self):
+        class Model(models.Model):
+            value = models.TextField(db_index=True)
+        field = Model._meta.get_field('value')
+        field_type = field.db_type(connection)
+        self.assertEqual(field.check(), [
+            DjangoWarning(
+                '%s does not support a database index on %s columns.'
+                % (connection.display_name, field_type),
+                hint=(
+                    "An index won't be created. Silence this warning if you "
+                    "don't care about it."
+                ),
+                obj=field,
+                id='fields.W162',
+            )
+        ])

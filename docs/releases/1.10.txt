@@ -355,7 +355,7 @@ Management Commands
   accepts a command object as the first argument.
 
 * The :djadmin:`shell` command supports tab completion on systems using
-  ``libedit``, e.g. Mac OSX.
+  ``libedit``, e.g. macOS.
 
 * The :djadmin:`inspectdb` command lets you choose what tables should be
   inspected by specifying their names as arguments.
@@ -919,6 +919,11 @@ Miscellaneous
   To adapt, move the fragment outside the template tag:
   ``{% static 'img.svg' %}#fragment``.
 
+* When :setting:`USE_L10N` is ``True``, localization is now applied for the
+  :tfilter:`date` and :tfilter:`time` filters when no format string is
+  specified. The ``DATE_FORMAT`` and ``TIME_FORMAT`` specifiers from the active
+  locale are used instead of the settings of the same name.
+
 .. _deprecated-features-1.10:
 
 Features deprecated in 1.10
@@ -1269,8 +1274,8 @@ to remove usage of these features.
 * The backwards compatibility shim to allow ``FormMixin.get_form()`` to be
   defined with no default value for its ``form_class`` argument is removed.
 
-* The following settings are removed, and :doc:`you must upgrade
-  </ref/templates/upgrading>` to the :setting:`TEMPLATES` setting:
+* The following settings are removed, and you must upgrade to the
+  :setting:`TEMPLATES` setting:
 
   * ``ALLOWED_INCLUDE_ROOTS``
   * ``TEMPLATE_CONTEXT_PROCESSORS``

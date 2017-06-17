@@ -1,8 +1,6 @@
 from django.db.backends.base.features import BaseDatabaseFeatures
 from django.utils.functional import cached_property
 
-from .base import Database
-
 
 class DatabaseFeatures(BaseDatabaseFeatures):
     empty_fetchmany_value = ()
@@ -19,6 +17,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     can_introspect_autofield = True
     can_introspect_binary_field = False
     can_introspect_small_integer_field = True
+    can_introspect_positive_integer_field = True
     supports_index_column_ordering = False
     supports_timezones = False
     requires_explicit_null_ordering_when_grouping = True
@@ -29,6 +28,10 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_column_check_constraints = False
     can_clone_databases = True
     supports_temporal_subtraction = True
+    supports_select_intersection = False
+    supports_select_difference = False
+    supports_slicing_ordering_in_compound = True
+    supports_index_on_text_field = False
 
     @cached_property
     def _mysql_storage_engine(self):
@@ -45,9 +48,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
 
     @cached_property
     def supports_microsecond_precision(self):
-        # See https://github.com/farcepest/MySQLdb1/issues/24 for the reason
-        # about requiring MySQLdb 1.2.5
-        return self.connection.mysql_version >= (5, 6, 4) and Database.version_info >= (1, 2, 5)
+        return self.connection.mysql_version >= (5, 6, 4)
 
     @cached_property
     def has_zoneinfo_database(self):

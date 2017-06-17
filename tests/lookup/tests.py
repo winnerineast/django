@@ -1,18 +1,13 @@
-from __future__ import unicode_literals
-
 import collections
 from datetime import datetime
+from math import ceil
 from operator import attrgetter
-from unittest import skipUnless
 
 from django.core.exceptions import FieldError
 from django.db import connection
-from django.test import (
-    TestCase, TransactionTestCase, ignore_warnings, skipUnlessDBFeature,
-)
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.test import TestCase, skipUnlessDBFeature
 
-from .models import Article, Author, Game, MyISAMArticle, Player, Season, Tag
+from .models import Article, Author, Game, Player, Season, Tag
 
 
 class LookupTests(TestCase):
@@ -134,6 +129,15 @@ class LookupTests(TestCase):
         with self.assertRaises(TypeError):
             Article.objects.in_bulk(headline__startswith='Blah')
 
+    def test_in_bulk_lots_of_ids(self):
+        test_range = 2000
+        max_query_params = connection.features.max_query_params
+        expected_num_queries = ceil(test_range / max_query_params) if max_query_params else 1
+        Author.objects.bulk_create([Author() for i in range(test_range - Author.objects.count())])
+        authors = {author.pk: author for author in Author.objects.all()}
+        with self.assertNumQueries(expected_num_queries):
+            self.assertEqual(Author.objects.in_bulk(authors), authors)
+
     def test_values(self):
         # values() returns a list of dictionaries instead of object instances --
         # and you can specify which fields you want to retrieve.
@@ -203,7 +207,7 @@ class LookupTests(TestCase):
             'id_plus_eight': 'id+8',
         }
         self.assertSequenceEqual(
-            Article.objects.filter(id=self.a1.id).extra(select=data).values(*data.keys()),
+            Article.objects.filter(id=self.a1.id).extra(select=data).values(*data),
             [{
                 'id_plus_one': self.a1.id + 1,
                 'id_plus_two': self.a1.id + 2,
@@ -259,7 +263,7 @@ class LookupTests(TestCase):
             ],
         )
         # However, an exception FieldDoesNotExist will be thrown if you specify
-        # a non-existent field name in values() (a field that is neither in the
+        # a nonexistent field name in values() (a field that is neither in the
         # model nor in extra(select)).
         with self.assertRaises(FieldError):
             Article.objects.extra(select={'id_plus_one': 'id + 1'}).values('id', 'id_plus_two')
@@ -775,26 +779,3 @@ class LookupTests(TestCase):
              '<Article: Article 7>'],
             ordered=False
         )
-
-
-class LookupTransactionTests(TransactionTestCase):
-    available_apps = ['lookup']
-
-    @ignore_warnings(category=RemovedInDjango20Warning)
-    @skipUnless(connection.vendor == 'mysql', 'requires MySQL')
-    def test_mysql_lookup_search(self):
-        # To use fulltext indexes on MySQL either version 5.6 is needed, or one must use
-        # MyISAM tables. Neither of these combinations is currently available on CI, so
-        # lets manually create a MyISAM table for Article model.
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "CREATE TEMPORARY TABLE myisam_article ("
-                "    id INTEGER PRIMARY KEY AUTO_INCREMENT, "
-                "    headline VARCHAR(100) NOT NULL "
-                ") ENGINE MYISAM")
-            dr = MyISAMArticle.objects.create(headline='Django Reinhardt')
-            MyISAMArticle.objects.create(headline='Ringo Star')
-            # NOTE: Needs to be created after the article has been saved.
-            cursor.execute(
-                'CREATE FULLTEXT INDEX myisam_article_ft ON myisam_article (headline)')
-            self.assertSequenceEqual(MyISAMArticle.objects.filter(headline__search='Reinhardt'), [dr])

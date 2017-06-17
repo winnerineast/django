@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 # Unit and doctests for specific database backends.
-from __future__ import unicode_literals
-
 import datetime
 import re
 import threading
 import unittest
 import warnings
 from decimal import Decimal, Rounded
+from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.color import no_style
@@ -16,18 +14,15 @@ from django.db import (
     reset_queries, transaction,
 )
 from django.db.backends.base.base import BaseDatabaseWrapper
-from django.db.backends.postgresql import version as pg_version
 from django.db.backends.signals import connection_created
 from django.db.backends.utils import CursorWrapper, format_number
 from django.db.models import Avg, StdDev, Sum, Variance
 from django.db.models.sql.constants import CURSOR
 from django.db.utils import ConnectionHandler
 from django.test import (
-    SimpleTestCase, TestCase, TransactionTestCase, mock, override_settings,
+    SimpleTestCase, TestCase, TransactionTestCase, override_settings,
     skipIfDBFeature, skipUnlessDBFeature,
 )
-from django.utils import six
-from django.utils.six.moves import range
 
 from .models import (
     Article, Item, Object, ObjectReference, Person, Post, RawData, Reporter,
@@ -60,6 +55,10 @@ class DatabaseWrapperTests(SimpleTestCase):
             instance_attr_value = getattr(conn, instance_attr_name)
             self.assertIsInstance(instance_attr_value, class_attr_value)
 
+    def test_initialization_display_name(self):
+        self.assertEqual(BaseDatabaseWrapper.display_name, 'unknown')
+        self.assertNotEqual(connection.display_name, 'unknown')
+
 
 class DummyBackendTest(SimpleTestCase):
 
@@ -86,11 +85,8 @@ class OracleTests(unittest.TestCase):
     def test_dbms_session(self):
         # If the backend is Oracle, test that we can call a standard
         # stored procedure through our cursor wrapper.
-        from django.db.backends.oracle.base import convert_unicode
-
         with connection.cursor() as cursor:
-            cursor.callproc(convert_unicode('DBMS_SESSION.SET_IDENTIFIER'),
-                            [convert_unicode('_django_testing!')])
+            cursor.callproc('DBMS_SESSION.SET_IDENTIFIER', ['_django_testing!'])
 
     def test_cursor_var(self):
         # If the backend is Oracle, test that we can pass cursor variables
@@ -107,7 +103,7 @@ class OracleTests(unittest.TestCase):
         # than 4000 chars and read it properly
         with connection.cursor() as cursor:
             cursor.execute('CREATE TABLE ltext ("TEXT" NCLOB)')
-            long_str = ''.join(six.text_type(x) for x in range(4000))
+            long_str = ''.join(str(x) for x in range(4000))
             cursor.execute('INSERT INTO ltext VALUES (%s)', [long_str])
             cursor.execute('SELECT text FROM ltext')
             row = cursor.fetchone()
@@ -197,22 +193,6 @@ class SQLiteTests(TestCase):
 @unittest.skipUnless(connection.vendor == 'postgresql', "Test only for PostgreSQL")
 class PostgreSQLTests(TestCase):
 
-    def assert_parses(self, version_string, version):
-        self.assertEqual(pg_version._parse_version(version_string), version)
-
-    def test_parsing(self):
-        """Test PostgreSQL version parsing from `SELECT version()` output"""
-        self.assert_parses("PostgreSQL 9.3 beta4", 90300)
-        self.assert_parses("PostgreSQL 9.3", 90300)
-        self.assert_parses("EnterpriseDB 9.3", 90300)
-        self.assert_parses("PostgreSQL 9.3.6", 90306)
-        self.assert_parses("PostgreSQL 9.4beta1", 90400)
-        self.assert_parses(
-            "PostgreSQL 9.3.1 on i386-apple-darwin9.2.2, compiled by GCC "
-            "i686-apple-darwin9-gcc-4.0.1 (GCC) 4.0.1 (Apple Inc. build 5478)",
-            90301
-        )
-
     def test_nodb_connection(self):
         """
         The _nodb_connection property fallbacks to the default connection
@@ -237,33 +217,6 @@ class PostgreSQLTests(TestCase):
         # Check a RuntimeWarning has been emitted
         self.assertEqual(len(w), 1)
         self.assertEqual(w[0].message.__class__, RuntimeWarning)
-
-    def test_version_detection(self):
-        """Test PostgreSQL version detection"""
-
-        # Helper mocks
-        class CursorMock(object):
-            "Very simple mock of DB-API cursor"
-            def execute(self, arg):
-                pass
-
-            def fetchone(self):
-                return ["PostgreSQL 9.3"]
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, type, value, traceback):
-                pass
-
-        class OlderConnectionMock(object):
-            "Mock of psycopg2 (< 2.0.12) connection"
-            def cursor(self):
-                return CursorMock()
-
-        # psycopg2 < 2.0.12 code path
-        conn = OlderConnectionMock()
-        self.assertEqual(pg_version.get_version(conn), 90300)
 
     def test_connect_and_rollback(self):
         """
@@ -321,6 +274,7 @@ class PostgreSQLTests(TestCase):
         """
         Regression test for #18130 and #24318.
         """
+        import psycopg2
         from psycopg2.extensions import (
             ISOLATION_LEVEL_READ_COMMITTED as read_committed,
             ISOLATION_LEVEL_SERIALIZABLE as serializable,
@@ -331,7 +285,8 @@ class PostgreSQLTests(TestCase):
         # PostgreSQL is configured with the default isolation level.
 
         # Check the level on the psycopg2 connection, not the Django wrapper.
-        self.assertEqual(connection.connection.isolation_level, read_committed)
+        default_level = read_committed if psycopg2.__version__ < '2.7' else None
+        self.assertEqual(connection.connection.isolation_level, default_level)
 
         new_connection = connection.copy()
         new_connection.settings_dict['OPTIONS']['isolation_level'] = serializable
@@ -368,13 +323,12 @@ class PostgreSQLTests(TestCase):
 
     def test_correct_extraction_psycopg2_version(self):
         from django.db.backends.postgresql.base import psycopg2_version
-        version_path = 'django.db.backends.postgresql.base.Database.__version__'
 
-        with mock.patch(version_path, '2.6.9'):
-            self.assertEqual(psycopg2_version(), (2, 6, 9))
+        with mock.patch('psycopg2.__version__', '4.2.1 (dt dec pq3 ext lo64)'):
+            self.assertEqual(psycopg2_version(), (4, 2, 1))
 
-        with mock.patch(version_path, '2.5.dev0'):
-            self.assertEqual(psycopg2_version(), (2, 5))
+        with mock.patch('psycopg2.__version__', '4.2b0.dev1 (dt dec pq3 ext lo64)'):
+            self.assertEqual(psycopg2_version(), (4, 2))
 
 
 class DateQuotingTest(TestCase):
@@ -418,14 +372,12 @@ class LastExecutedQueryTest(TestCase):
         self.assertIn(Reporter._meta.db_table, sql)
 
     def test_query_encoding(self):
-        """
-        last_executed_query() returns an Unicode string
-        """
+        """last_executed_query() returns a string."""
         data = RawData.objects.filter(raw_data=b'\x00\x46  \xFE').extra(select={'föö': 1})
         sql, params = data.query.sql_with_params()
         cursor = data.query.get_compiler('default').execute_sql(CURSOR)
         last_sql = cursor.db.ops.last_executed_query(cursor, sql, params)
-        self.assertIsInstance(last_sql, six.text_type)
+        self.assertIsInstance(last_sql, str)
 
     @unittest.skipUnless(connection.vendor == 'sqlite',
                          "This test is specific to SQLite.")
@@ -802,7 +754,7 @@ class BackendTestCase(TransactionTestCase):
 
         self.assertIsInstance(connection.queries, list)
         self.assertIsInstance(connection.queries[0], dict)
-        self.assertCountEqual(connection.queries[0].keys(), ['sql', 'time'])
+        self.assertCountEqual(connection.queries[0], ['sql', 'time'])
 
         reset_queries()
         self.assertEqual(0, len(connection.queries))
@@ -1017,9 +969,7 @@ class ThreadTests(TransactionTestCase):
             t.start()
             t.join()
         # Each created connection got different inner connection.
-        self.assertEqual(
-            len(set(conn.connection for conn in connections_dict.values())),
-            3)
+        self.assertEqual(len({conn.connection for conn in connections_dict.values()}), 3)
         # Finish by closing the connections opened by the other threads (the
         # connection opened in the main thread will automatically be closed on
         # teardown).

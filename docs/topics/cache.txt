@@ -302,6 +302,8 @@ above example, if your server runs as the user ``apache``, make sure the
 directory ``/var/tmp/django_cache`` exists and is readable and writable by the
 user ``apache``.
 
+.. _local-memory-caching:
+
 Local-memory caching
 --------------------
 
@@ -657,8 +659,9 @@ the ``cache`` template tag. To give your template access to this tag, put
 
 The ``{% cache %}`` template tag caches the contents of the block for a given
 amount of time. It takes at least two arguments: the cache timeout, in seconds,
-and the name to give the cache fragment. The name will be taken as is, do not
-use a variable. For example:
+and the name to give the cache fragment. The fragment is cached forever if
+timeout is ``None``. The name will be taken as is, do not use a variable. For
+example:
 
 .. code-block:: html+django
 
@@ -666,6 +669,10 @@ use a variable. For example:
     {% cache 500 sidebar %}
         .. sidebar ..
     {% endcache %}
+
+.. versionchanged:: 2.0
+
+    Older versions don't allow a ``None`` timeout.
 
 Sometimes you might want to cache multiple copies of a fragment depending on
 some dynamic data that appears inside the fragment. For example, you might want a
@@ -803,8 +810,7 @@ The basic interface is ``set(key, value, timeout)`` and ``get(key)``::
     >>> cache.get('my_key')
     'hello, world!'
 
-``key`` should be a ``str`` (or ``unicode`` on Python 2), and ``value`` can be
-any picklable Python object.
+``key`` should be a ``str``, and ``value`` can be any picklable Python object.
 
 The ``timeout`` argument is optional and defaults to the ``timeout`` argument
 of the appropriate backend in the :setting:`CACHES` setting (explained above).

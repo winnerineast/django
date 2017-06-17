@@ -1,5 +1,3 @@
-import io
-
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import DEFAULT_DB_ALIAS, connections, migrations
@@ -7,7 +5,6 @@ from django.db.migrations.loader import AmbiguityError, MigrationLoader
 from django.db.migrations.migration import SwappableTuple
 from django.db.migrations.optimizer import MigrationOptimizer
 from django.db.migrations.writer import MigrationWriter
-from django.utils import six
 from django.utils.version import get_docs_version
 
 
@@ -28,11 +25,11 @@ class Command(BaseCommand):
             help='Migrations will be squashed until and including this migration.',
         )
         parser.add_argument(
-            '--no-optimize', action='store_true', dest='no_optimize', default=False,
+            '--no-optimize', action='store_true', dest='no_optimize',
             help='Do not try to optimize the squashed operations.',
         )
         parser.add_argument(
-            '--noinput', '--no-input', action='store_false', dest='interactive', default=True,
+            '--noinput', '--no-input', action='store_false', dest='interactive',
             help='Tells Django to NOT prompt the user for input of any kind.',
         )
 
@@ -86,7 +83,7 @@ class Command(BaseCommand):
             if self.interactive:
                 answer = None
                 while not answer or answer not in "yn":
-                    answer = six.moves.input("Do you wish to proceed? [yN] ")
+                    answer = input("Do you wish to proceed? [yN] ")
                     if not answer:
                         answer = "n"
                         break
@@ -164,7 +161,7 @@ class Command(BaseCommand):
 
         # Write out the new migration file
         writer = MigrationWriter(new_migration)
-        with io.open(writer.path, "w", encoding='utf-8') as fh:
+        with open(writer.path, "w", encoding='utf-8') as fh:
             fh.write(writer.as_string())
 
         if self.verbosity > 0:

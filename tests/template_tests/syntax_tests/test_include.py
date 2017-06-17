@@ -1,7 +1,7 @@
 import warnings
 
 from django.template import (
-    Context, Engine, TemplateDoesNotExist, TemplateSyntaxError,
+    Context, Engine, TemplateDoesNotExist, TemplateSyntaxError, loader,
 )
 from django.test import SimpleTestCase, ignore_warnings
 from django.utils.deprecation import RemovedInDjango21Warning
@@ -248,9 +248,6 @@ class IncludeTests(SimpleTestCase):
         self.assertEqual(e.exception.args[0], 'missing.html')
 
     def test_extends_include_missing_cachedloader(self):
-        """
-        Test the cache loader separately since it overrides load_template.
-        """
         engine = Engine(debug=True, loaders=[
             ('django.template.loaders.cached.Loader', [
                 'django.template.loaders.app_directories.Loader',
@@ -280,6 +277,11 @@ class IncludeTests(SimpleTestCase):
         output = outer_tmpl.render(ctx)
         self.assertEqual(output, 'This worked!')
 
+    def test_include_from_loader_get_template(self):
+        tmpl = loader.get_template('include_tpl.html')  # {% include tmpl %}
+        output = tmpl.render({'tmpl': loader.get_template('index.html')})
+        self.assertEqual(output, 'index\n\n')
+
     def test_include_immediate_missing(self):
         """
         #16417 -- Include tags pointing to missing templates should not raise
@@ -306,3 +308,23 @@ class IncludeTests(SimpleTestCase):
             "Recursion!  A1  Recursion!  B1   B2   B3  Recursion!  C1",
             t.render(Context({'comments': comments})).replace(' ', '').replace('\n', ' ').strip(),
         )
+
+    def test_include_cache(self):
+        """
+        {% include %} keeps resolved templates constant (#27974). The
+        CounterNode object in the {% counter %} template tag is created once
+        if caching works properly. Each iteration increases the counter instead
+        of restarting it.
+
+        This works as a regression test only if the cached loader
+        isn't used, so the @setup decorator isn't used.
+        """
+        engine = Engine(loaders=[
+            ('django.template.loaders.locmem.Loader', {
+                'template': '{% for x in vars %}{% include "include" %}{% endfor %}',
+                'include': '{% include "next" %}',
+                'next': '{% load custom %}{% counter %}'
+            }),
+        ], libraries={'custom': 'template_tests.templatetags.custom'})
+        output = engine.render_to_string('template', {'vars': range(9)})
+        self.assertEqual(output, '012345678')

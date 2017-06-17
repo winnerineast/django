@@ -19,11 +19,11 @@ class MultiJoin(Exception):
         self.names_with_path = path_with_names
 
 
-class Empty(object):
+class Empty:
     pass
 
 
-class Join(object):
+class Join:
     """
     Used by sql.Query and sql.SQLCompiler to generate JOIN clauses into the
     FROM entry. For example, the SQL generated could be
@@ -59,7 +59,7 @@ class Join(object):
 
     def as_sql(self, compiler, connection):
         """
-        Generates the full
+        Generate the full
            LEFT OUTER JOIN sometable ON sometable.somecol = othertable.othercol, params
         clause for this join.
         """
@@ -125,7 +125,7 @@ class Join(object):
         return new
 
 
-class BaseTable(object):
+class BaseTable:
     """
     The BaseTable class is used for base table references in FROM clause. For
     example, the SQL "foo" in

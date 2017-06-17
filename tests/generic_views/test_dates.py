@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 import datetime
 
 from django.core.exceptions import ImproperlyConfigured
@@ -20,7 +17,7 @@ def _make_books(n, base_date):
             pubdate=base_date - datetime.timedelta(days=i))
 
 
-class TestDataMixin(object):
+class TestDataMixin:
 
     @classmethod
     def setUpTestData(cls):
@@ -663,6 +660,18 @@ class DateDetailViewTests(TestDataMixin, TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.context['book'], b)
         self.assertTemplateUsed(res, 'generic_views/book_detail.html')
+
+    def test_year_out_of_range(self):
+        urls = [
+            '/dates/books/9999/',
+            '/dates/books/9999/12/',
+            '/dates/books/9999/week/52/',
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                res = self.client.get(url)
+                self.assertEqual(res.status_code, 404)
+                self.assertEqual(res.context['exception'], 'Date out of range')
 
     def test_invalid_url(self):
         with self.assertRaises(AttributeError):

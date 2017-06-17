@@ -1,16 +1,13 @@
-from __future__ import unicode_literals
-
+import ipaddress
 import os
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 from django.core.exceptions import ValidationError
-from django.utils import six
 from django.utils.deconstruct import deconstructible
-from django.utils.encoding import force_text
 from django.utils.functional import SimpleLazyObject
 from django.utils.ipv6 import is_valid_ipv6_address
-from django.utils.six.moves.urllib.parse import urlsplit, urlunsplit
-from django.utils.translation import ugettext_lazy as _, ungettext_lazy
+from django.utils.translation import gettext_lazy as _, ngettext_lazy
 
 # These values, if given to validate(), will trigger the self.required check.
 EMPTY_VALUES = (None, '', [], (), {})
@@ -20,7 +17,7 @@ def _lazy_re_compile(regex, flags=0):
     """Lazily compile a regex with flags."""
     def _compile():
         # Compile the regex if it was not passed pre-compiled.
-        if isinstance(regex, six.string_types):
+        if isinstance(regex, str):
             return re.compile(regex, flags)
         else:
             assert not flags, "flags must be empty if regex is passed pre-compiled"
@@ -29,7 +26,7 @@ def _lazy_re_compile(regex, flags=0):
 
 
 @deconstructible
-class RegexValidator(object):
+class RegexValidator:
     regex = ''
     message = _('Enter a valid value.')
     code = 'invalid'
@@ -47,18 +44,19 @@ class RegexValidator(object):
             self.inverse_match = inverse_match
         if flags is not None:
             self.flags = flags
-        if self.flags and not isinstance(self.regex, six.string_types):
+        if self.flags and not isinstance(self.regex, str):
             raise TypeError("If the flags are set, regex must be a regular expression string.")
 
         self.regex = _lazy_re_compile(self.regex, self.flags)
 
     def __call__(self, value):
         """
-        Validates that the input matches the regular expression
-        if inverse_match is False, otherwise raises ValidationError.
+        Validate that the input contains (or does *not* contain, if
+        inverse_match is True) a match for the regular expression.
         """
-        if not (self.inverse_match is not bool(self.regex.search(
-                force_text(value)))):
+        regex_matches = bool(self.regex.search(str(value)))
+        invalid_input = regex_matches if self.inverse_match else not regex_matches
+        if invalid_input:
             raise ValidationError(self.message, code=self.code)
 
     def __eq__(self, other):
@@ -71,13 +69,10 @@ class RegexValidator(object):
             (self.inverse_match == other.inverse_match)
         )
 
-    def __ne__(self, other):
-        return not (self == other)
-
 
 @deconstructible
 class URLValidator(RegexValidator):
-    ul = '\u00a1-\uffff'  # unicode letters range (must be a unicode string, not a raw string)
+    ul = '\u00a1-\uffff'  # unicode letters range (must not be a raw string)
 
     # IP patterns
     ipv4_re = r'(?:25[0-5]|2[0-4]\d|[0-1]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[0-1]?\d?\d)){3}'
@@ -108,12 +103,11 @@ class URLValidator(RegexValidator):
     schemes = ['http', 'https', 'ftp', 'ftps']
 
     def __init__(self, schemes=None, **kwargs):
-        super(URLValidator, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         if schemes is not None:
             self.schemes = schemes
 
     def __call__(self, value):
-        value = force_text(value)
         # Check first if the scheme is valid
         scheme = value.split('://')[0].lower()
         if scheme not in self.schemes:
@@ -121,7 +115,7 @@ class URLValidator(RegexValidator):
 
         # Then check full URL
         try:
-            super(URLValidator, self).__call__(value)
+            super().__call__(value)
         except ValidationError as e:
             # Trivial case failed. Try for possible IDN domain
             if value:
@@ -134,7 +128,7 @@ class URLValidator(RegexValidator):
                 except UnicodeError:  # invalid domain part
                     raise e
                 url = urlunsplit((scheme, netloc, path, query, fragment))
-                super(URLValidator, self).__call__(url)
+                super().__call__(url)
             else:
                 raise
         else:
@@ -146,7 +140,6 @@ class URLValidator(RegexValidator):
                     validate_ipv6_address(potential_ip)
                 except ValidationError:
                     raise ValidationError(self.message, code=self.code)
-            url = value
 
         # The maximum length of a full host name is 253 characters per RFC 1034
         # section 3.1. It's defined to be 255 bytes or less, but this includes
@@ -168,7 +161,7 @@ def validate_integer(value):
 
 
 @deconstructible
-class EmailValidator(object):
+class EmailValidator:
     message = _('Enter a valid email address.')
     code = 'invalid'
     user_regex = _lazy_re_compile(
@@ -194,8 +187,6 @@ class EmailValidator(object):
             self.domain_whitelist = whitelist
 
     def __call__(self, value):
-        value = force_text(value)
-
         if not value or '@' not in value:
             raise ValidationError(self.message, code=self.code)
 
@@ -243,19 +234,24 @@ validate_email = EmailValidator()
 slug_re = _lazy_re_compile(r'^[-a-zA-Z0-9_]+\Z')
 validate_slug = RegexValidator(
     slug_re,
+    # Translators: "letters" means latin letters: a-z and A-Z.
     _("Enter a valid 'slug' consisting of letters, numbers, underscores or hyphens."),
     'invalid'
 )
 
-slug_unicode_re = _lazy_re_compile(r'^[-\w]+\Z', re.U)
+slug_unicode_re = _lazy_re_compile(r'^[-\w]+\Z')
 validate_unicode_slug = RegexValidator(
     slug_unicode_re,
     _("Enter a valid 'slug' consisting of Unicode letters, numbers, underscores, or hyphens."),
     'invalid'
 )
 
-ipv4_re = _lazy_re_compile(r'^(25[0-5]|2[0-4][0-9]|[0-1]?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|[0-1]?[0-9]?[0-9])){3}\Z')
-validate_ipv4_address = RegexValidator(ipv4_re, _('Enter a valid IPv4 address.'), 'invalid')
+
+def validate_ipv4_address(value):
+    try:
+        ipaddress.IPv4Address(value)
+    except ValueError:
+        raise ValidationError(_('Enter a valid IPv4 address.'), code='invalid')
 
 
 def validate_ipv6_address(value):
@@ -282,10 +278,8 @@ ip_address_validator_map = {
 
 def ip_address_validators(protocol, unpack_ipv4):
     """
-    Depending on the given parameters returns the appropriate validators for
+    Depending on the given parameters, return the appropriate validators for
     the GenericIPAddressField.
-
-    This code is here, because it is exactly the same for the model and the form field.
     """
     if protocol != 'both' and unpack_ipv4:
         raise ValueError(
@@ -311,7 +305,7 @@ validate_comma_separated_integer_list = int_list_validator(
 
 
 @deconstructible
-class BaseValidator(object):
+class BaseValidator:
     message = _('Ensure this value is %(limit_value)s (it is %(show_value)s).')
     code = 'limit_value'
 
@@ -361,7 +355,7 @@ class MinValueValidator(BaseValidator):
 
 @deconstructible
 class MinLengthValidator(BaseValidator):
-    message = ungettext_lazy(
+    message = ngettext_lazy(
         'Ensure this value has at least %(limit_value)d character (it has %(show_value)d).',
         'Ensure this value has at least %(limit_value)d characters (it has %(show_value)d).',
         'limit_value')
@@ -376,7 +370,7 @@ class MinLengthValidator(BaseValidator):
 
 @deconstructible
 class MaxLengthValidator(BaseValidator):
-    message = ungettext_lazy(
+    message = ngettext_lazy(
         'Ensure this value has at most %(limit_value)d character (it has %(show_value)d).',
         'Ensure this value has at most %(limit_value)d characters (it has %(show_value)d).',
         'limit_value')
@@ -390,23 +384,23 @@ class MaxLengthValidator(BaseValidator):
 
 
 @deconstructible
-class DecimalValidator(object):
+class DecimalValidator:
     """
     Validate that the input does not exceed the maximum number of digits
     expected, otherwise raise ValidationError.
     """
     messages = {
-        'max_digits': ungettext_lazy(
+        'max_digits': ngettext_lazy(
             'Ensure that there are no more than %(max)s digit in total.',
             'Ensure that there are no more than %(max)s digits in total.',
             'max'
         ),
-        'max_decimal_places': ungettext_lazy(
+        'max_decimal_places': ngettext_lazy(
             'Ensure that there are no more than %(max)s decimal place.',
             'Ensure that there are no more than %(max)s decimal places.',
             'max'
         ),
-        'max_whole_digits': ungettext_lazy(
+        'max_whole_digits': ngettext_lazy(
             'Ensure that there are no more than %(max)s digit before the decimal point.',
             'Ensure that there are no more than %(max)s digits before the decimal point.',
             'max'
@@ -459,7 +453,7 @@ class DecimalValidator(object):
 
 
 @deconstructible
-class FileExtensionValidator(object):
+class FileExtensionValidator:
     message = _(
         "File extension '%(extension)s' is not allowed. "
         "Allowed extensions are: '%(allowed_extensions)s'."
@@ -467,6 +461,8 @@ class FileExtensionValidator(object):
     code = 'invalid_extension'
 
     def __init__(self, allowed_extensions=None, message=None, code=None):
+        if allowed_extensions is not None:
+            allowed_extensions = [allowed_extension.lower() for allowed_extension in allowed_extensions]
         self.allowed_extensions = allowed_extensions
         if message is not None:
             self.message = message
@@ -501,7 +497,7 @@ def get_available_image_extensions():
         return []
     else:
         Image.init()
-        return [ext.lower()[1:] for ext in Image.EXTENSION.keys()]
+        return [ext.lower()[1:] for ext in Image.EXTENSION]
 
 
 validate_image_file_extension = FileExtensionValidator(

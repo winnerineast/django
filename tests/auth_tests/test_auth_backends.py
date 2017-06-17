@@ -1,6 +1,5 @@
-from __future__ import unicode_literals
-
 from datetime import date
+from unittest import mock
 
 from django.contrib.auth import (
     BACKEND_SESSION_KEY, SESSION_KEY, authenticate, get_user, signals,
@@ -12,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.http import HttpRequest
 from django.test import (
-    SimpleTestCase, TestCase, mock, modify_settings, override_settings,
+    SimpleTestCase, TestCase, modify_settings, override_settings,
 )
 
 from .models import (
@@ -28,10 +27,10 @@ class CountingMD5PasswordHasher(MD5PasswordHasher):
 
     def encode(self, *args, **kwargs):
         type(self).calls += 1
-        return super(CountingMD5PasswordHasher, self).encode(*args, **kwargs)
+        return super().encode(*args, **kwargs)
 
 
-class BaseModelBackendTest(object):
+class BaseModelBackendTest:
     """
     A base class for tests that need to validate the ModelBackend
     with different User models. Subclasses should define a class
@@ -321,11 +320,11 @@ class UUIDUserTests(TestCase):
         self.assertEqual(UUIDUser.objects.get(pk=self.client.session[SESSION_KEY]), user)
 
 
-class TestObj(object):
+class TestObj:
     pass
 
 
-class SimpleRowlevelBackend(object):
+class SimpleRowlevelBackend:
     def has_perm(self, user, perm, obj=None):
         if not obj:
             return  # We only support row level perms
@@ -470,7 +469,7 @@ class InActiveUserBackendTest(TestCase):
         self.assertIs(self.user1.has_module_perms("app2"), False)
 
 
-class PermissionDeniedBackend(object):
+class PermissionDeniedBackend:
     """
     Always raises PermissionDenied in `authenticate`, `has_perm` and `has_module_perms`.
     """
@@ -575,7 +574,7 @@ class ChangedBackendSettingsTest(TestCase):
             self.assertTrue(user.is_anonymous)
 
 
-class TypeErrorBackend(object):
+class TypeErrorBackend:
     """
     Always raises TypeError.
     """
@@ -584,19 +583,32 @@ class TypeErrorBackend(object):
         raise TypeError
 
 
-class TypeErrorBackendTest(TestCase):
-    """
-    A TypeError within a backend is propagated properly (#18171).
-    """
-    backend = 'auth_tests.test_auth_backends.TypeErrorBackend'
+class SkippedBackend:
+    def authenticate(self):
+        # Doesn't accept any credentials so is skipped by authenticate().
+        pass
 
+
+class AuthenticateTests(TestCase):
     def setUp(self):
         self.user1 = User.objects.create_user('test', 'test@example.com', 'test')
 
-    @override_settings(AUTHENTICATION_BACKENDS=[backend])
+    @override_settings(AUTHENTICATION_BACKENDS=['auth_tests.test_auth_backends.TypeErrorBackend'])
     def test_type_error_raised(self):
+        """A TypeError within a backend is propagated properly (#18171)."""
         with self.assertRaises(TypeError):
             authenticate(username='test', password='test')
+
+    @override_settings(AUTHENTICATION_BACKENDS=(
+        'auth_tests.test_auth_backends.SkippedBackend',
+        'django.contrib.auth.backends.ModelBackend',
+    ))
+    def test_skips_backends_without_arguments(self):
+        """
+        A backend (SkippedBackend) is ignored if it doesn't accept the
+        credentials as arguments.
+        """
+        self.assertEqual(authenticate(username='test', password='test'), self.user1)
 
 
 class ImproperlyConfiguredUserModelTest(TestCase):

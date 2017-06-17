@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 import gettext
 import os
+import re
 from datetime import datetime, timedelta
 from importlib import import_module
 
@@ -19,7 +17,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import CharField, DateField, DateTimeField
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
-from django.utils import six, translation
+from django.utils import translation
 
 from .models import (
     Advisor, Album, Band, Bee, Car, Company, Event, Honeycomb, Individual,
@@ -28,7 +26,7 @@ from .models import (
 from .widgetadmin import site as widget_admin_site
 
 
-class TestDataMixin(object):
+class TestDataMixin:
 
     @classmethod
     def setUpTestData(cls):
@@ -182,7 +180,7 @@ class AdminFormfieldForDBFieldTests(SimpleTestCase):
         ma = AdvisorAdmin(Advisor, admin.site)
         f = ma.formfield_for_dbfield(Advisor._meta.get_field('companies'), request=None)
         self.assertEqual(
-            six.text_type(f.help_text),
+            f.help_text,
             'Hold down "Control", or "Command" on a Mac, to select more than one.'
         )
 
@@ -224,7 +222,7 @@ class AdminForeignKeyRawIdWidget(TestDataMixin, TestCase):
         post_data = {
             "main_band": '%s' % pk,
         }
-        # Try posting with a non-existent pk in a raw id field: this
+        # Try posting with a nonexistent pk in a raw id field: this
         # should result in an error message, not a server exception.
         response = self.client.post(reverse('admin:admin_widgets_event_add'), post_data)
         self.assertContains(response, 'Select a valid choice. That choice is not one of the available choices.')
@@ -354,34 +352,53 @@ class AdminURLWidgetTest(SimpleTestCase):
         )
 
     def test_render_quoting(self):
-        # WARNING: Don't use assertHTMLEqual in that testcase!
-        # assertHTMLEqual will get rid of some escapes which are tested here!
+        """
+        WARNING: This test doesn't use assertHTMLEqual since it will get rid
+        of some escapes which are tested here!
+        """
+        HREF_RE = re.compile('href="([^"]+)"')
+        VALUE_RE = re.compile('value="([^"]+)"')
+        TEXT_RE = re.compile('<a[^>]+>([^>]+)</a>')
         w = widgets.AdminURLFieldWidget()
+        output = w.render('test', 'http://example.com/<sometag>some text</sometag>')
         self.assertEqual(
-            w.render('test', 'http://example.com/<sometag>some text</sometag>'),
-            '<p class="url">Currently: '
-            '<a href="http://example.com/%3Csometag%3Esome%20text%3C/sometag%3E">'
-            'http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;</a><br />'
-            'Change: <input class="vURLField" name="test" type="url" '
-            'value="http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;" /></p>'
+            HREF_RE.search(output).groups()[0],
+            'http://example.com/%3Csometag%3Esome%20text%3C/sometag%3E',
         )
         self.assertEqual(
-            w.render('test', 'http://example-äüö.com/<sometag>some text</sometag>'),
-            '<p class="url">Currently: '
-            '<a href="http://xn--example--7za4pnc.com/%3Csometag%3Esome%20text%3C/sometag%3E">'
-            'http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;</a><br />'
-            'Change: <input class="vURLField" name="test" type="url" '
-            'value="http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;" /></p>'
+            TEXT_RE.search(output).groups()[0],
+            'http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;',
         )
         self.assertEqual(
-            w.render('test', 'http://www.example.com/%C3%A4"><script>alert("XSS!")</script>"'),
-            '<p class="url">Currently: '
-            '<a href="http://www.example.com/%C3%A4%22%3E%3Cscript%3Ealert(%22XSS!%22)%3C/script%3E%22">'
+            VALUE_RE.search(output).groups()[0],
+            'http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;',
+        )
+        output = w.render('test', 'http://example-äüö.com/<sometag>some text</sometag>')
+        self.assertEqual(
+            HREF_RE.search(output).groups()[0],
+            'http://xn--example--7za4pnc.com/%3Csometag%3Esome%20text%3C/sometag%3E',
+        )
+        self.assertEqual(
+            TEXT_RE.search(output).groups()[0],
+            'http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;',
+        )
+        self.assertEqual(
+            VALUE_RE.search(output).groups()[0],
+            'http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;',
+        )
+        output = w.render('test', 'http://www.example.com/%C3%A4"><script>alert("XSS!")</script>"')
+        self.assertEqual(
+            HREF_RE.search(output).groups()[0],
+            'http://www.example.com/%C3%A4%22%3E%3Cscript%3Ealert(%22XSS!%22)%3C/script%3E%22',
+        )
+        self.assertEqual(
+            TEXT_RE.search(output).groups()[0],
             'http://www.example.com/%C3%A4&quot;&gt;&lt;script&gt;'
-            'alert(&quot;XSS!&quot;)&lt;/script&gt;&quot;</a><br />'
-            'Change: <input class="vURLField" name="test" type="url" '
-            'value="http://www.example.com/%C3%A4&quot;&gt;&lt;script&gt;'
-            'alert(&quot;XSS!&quot;)&lt;/script&gt;&quot;" /></p>'
+            'alert(&quot;XSS!&quot;)&lt;/script&gt;&quot;'
+        )
+        self.assertEqual(
+            VALUE_RE.search(output).groups()[0],
+            'http://www.example.com/%C3%A4&quot;&gt;&lt;script&gt;alert(&quot;XSS!&quot;)&lt;/script&gt;&quot;',
         )
 
 
@@ -390,7 +407,7 @@ class AdminFileWidgetTests(TestDataMixin, TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        super(AdminFileWidgetTests, cls).setUpTestData()
+        super().setUpTestData()
         band = Band.objects.create(name='Linkin Park')
         cls.album = band.album_set.create(
             name='Hybrid Theory', cover_art=r'albums\hybrid_theory.jpg'
@@ -412,6 +429,18 @@ class AdminFileWidgetTests(TestDataMixin, TestCase):
         self.assertHTMLEqual(
             w.render('test', SimpleUploadedFile('test', b'content')),
             '<input type="file" name="test" />',
+        )
+
+    def test_render_required(self):
+        widget = widgets.AdminFileWidget()
+        widget.is_required = True
+        self.assertHTMLEqual(
+            widget.render('test', self.album.cover_art),
+            '<p class="file-upload">Currently: <a href="%(STORAGE_URL)salbums/'
+            r'hybrid_theory.jpg">albums\hybrid_theory.jpg</a><br />'
+            'Change: <input type="file" name="test" /></p>' % {
+                'STORAGE_URL': default_storage.url(''),
+            },
         )
 
     def test_readonly_fields(self):
@@ -491,8 +520,8 @@ class ForeignKeyRawIdWidgetTest(TestCase):
         self.assertHTMLEqual(
             w.render('honeycomb_widget', big_honeycomb.pk, attrs={}),
             '<input type="text" name="honeycomb_widget" value="%(hcombpk)s" />'
-            '&nbsp;<strong>Honeycomb object</strong>'
-            % {'hcombpk': big_honeycomb.pk}
+            '&nbsp;<strong>%(hcomb)s</strong>'
+            % {'hcombpk': big_honeycomb.pk, 'hcomb': big_honeycomb}
         )
 
     def test_fk_to_self_model_not_in_admin(self):
@@ -506,8 +535,8 @@ class ForeignKeyRawIdWidgetTest(TestCase):
         self.assertHTMLEqual(
             w.render('individual_widget', subject1.pk, attrs={}),
             '<input type="text" name="individual_widget" value="%(subj1pk)s" />'
-            '&nbsp;<strong>Individual object</strong>'
-            % {'subj1pk': subject1.pk}
+            '&nbsp;<strong>%(subj1)s</strong>'
+            % {'subj1pk': subject1.pk, 'subj1': subject1}
         )
 
     def test_proper_manager_for_label_lookup(self):
@@ -547,14 +576,14 @@ class ManyToManyRawIdWidgetTest(TestCase):
             w.render('test', [m1.pk, m2.pk], attrs={}), (
                 '<input type="text" name="test" value="%(m1pk)s,%(m2pk)s" class="vManyToManyRawIdAdminField" />'
                 '<a href="/admin_widgets/member/" class="related-lookup" id="lookup_id_test" title="Lookup"></a>'
-            ) % dict(m1pk=m1.pk, m2pk=m2.pk)
+            ) % {'m1pk': m1.pk, 'm2pk': m2.pk}
         )
 
         self.assertHTMLEqual(
             w.render('test', [m1.pk]), (
                 '<input type="text" name="test" value="%(m1pk)s" class="vManyToManyRawIdAdminField">'
                 '<a href="/admin_widgets/member/" class="related-lookup" id="lookup_id_test" title="Lookup"></a>'
-            ) % dict(m1pk=m1.pk)
+            ) % {'m1pk': m1.pk}
         )
 
     def test_m2m_related_model_not_in_admin(self):
@@ -579,6 +608,7 @@ class ManyToManyRawIdWidgetTest(TestCase):
         )
 
 
+@override_settings(ROOT_URLCONF='admin_widgets.urls')
 class RelatedFieldWidgetWrapperTests(SimpleTestCase):
     def test_no_can_add_related(self):
         rel = Individual._meta.get_field('parent').remote_field
@@ -612,6 +642,30 @@ class RelatedFieldWidgetWrapperTests(SimpleTestCase):
         self.assertTrue(wrapper.can_add_related)
         self.assertTrue(wrapper.can_change_related)
         self.assertFalse(wrapper.can_delete_related)
+
+    def test_custom_widget_render(self):
+        class CustomWidget(forms.Select):
+            def render(self, *args, **kwargs):
+                return 'custom render output'
+        rel = Album._meta.get_field('band').remote_field
+        widget = CustomWidget()
+        wrapper = widgets.RelatedFieldWidgetWrapper(
+            widget, rel, widget_admin_site,
+            can_add_related=True,
+            can_change_related=True,
+            can_delete_related=True,
+        )
+        output = wrapper.render('name', 'value')
+        self.assertIn('custom render output', output)
+
+    def test_widget_delegates_value_omitted_from_data(self):
+        class CustomWidget(forms.Select):
+            def value_omitted_from_data(self, data, files, name):
+                return False
+        rel = Album._meta.get_field('band').remote_field
+        widget = CustomWidget()
+        wrapper = widgets.RelatedFieldWidgetWrapper(widget, rel, widget_admin_site)
+        self.assertIs(wrapper.value_omitted_from_data({}, {}, 'band'), False)
 
 
 @override_settings(ROOT_URLCONF='admin_widgets.urls')
@@ -837,7 +891,7 @@ class DateTimePickerAltTimezoneSeleniumTests(DateTimePickerShortcutsSeleniumTest
 class HorizontalVerticalFilterSeleniumTests(AdminWidgetSeleniumTestCase):
 
     def setUp(self):
-        super(HorizontalVerticalFilterSeleniumTests, self).setUp()
+        super().setUp()
         self.lisa = Student.objects.create(name='Lisa')
         self.john = Student.objects.create(name='John')
         self.bob = Student.objects.create(name='Bob')
@@ -1154,7 +1208,7 @@ class HorizontalVerticalFilterSeleniumTests(AdminWidgetSeleniumTestCase):
 class AdminRawIdWidgetSeleniumTests(AdminWidgetSeleniumTestCase):
 
     def setUp(self):
-        super(AdminRawIdWidgetSeleniumTests, self).setUp()
+        super().setUp()
         Band.objects.create(id=42, name='Bogey Blues')
         Band.objects.create(id=98, name='Green Potatoes')
 

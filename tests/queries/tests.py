@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 import datetime
 import pickle
 import unittest
@@ -13,8 +11,6 @@ from django.db.models.sql.constants import LOUTER
 from django.db.models.sql.where import NothingNode, WhereNode
 from django.test import TestCase, skipUnlessDBFeature
 from django.test.utils import CaptureQueriesContext
-from django.utils import six
-from django.utils.six.moves import range
 
 from .models import (
     FK1, Annotation, Article, Author, BaseA, Book, CategoryItem,
@@ -26,10 +22,11 @@ from .models import (
     Note, NullableName, Number, ObjectA, ObjectB, ObjectC, OneToOneCategory,
     Order, OrderItem, Page, Paragraph, Person, Plaything, PointerA, Program,
     ProxyCategory, ProxyObjectA, ProxyObjectB, Ranking, Related,
-    RelatedIndividual, RelatedObject, Report, ReservedName, Responsibility,
-    School, SharedConnection, SimpleCategory, SingleObject, SpecialCategory,
-    Staff, StaffUser, Student, Tag, Task, Ticket21203Child, Ticket21203Parent,
-    Ticket23605A, Ticket23605B, Ticket23605C, TvChef, Valid, X,
+    RelatedIndividual, RelatedObject, Report, ReportComment, ReservedName,
+    Responsibility, School, SharedConnection, SimpleCategory, SingleObject,
+    SpecialCategory, Staff, StaffUser, Student, Tag, Task, Teacher,
+    Ticket21203Child, Ticket21203Parent, Ticket23605A, Ticket23605B,
+    Ticket23605C, TvChef, Valid, X,
 )
 
 
@@ -408,7 +405,7 @@ class Queries1Tests(TestCase):
         local_recursion_limit = 127
         msg = 'Maximum recursion depth exceeded: too many subqueries.'
         with self.assertRaisesMessage(RuntimeError, msg):
-            for i in six.moves.range(local_recursion_limit * 2):
+            for i in range(local_recursion_limit * 2):
                 x = Tag.objects.filter(pk__in=x)
 
     def test_reasonable_number_of_subq_aliases(self):
@@ -553,13 +550,10 @@ class Queries1Tests(TestCase):
         # normal. A normal dict would thus fail.)
         s = [('a', '%s'), ('b', '%s')]
         params = ['one', 'two']
-        if {'a': 1, 'b': 2}.keys() == ['a', 'b']:
+        if list({'a': 1, 'b': 2}) == ['a', 'b']:
             s.reverse()
             params.reverse()
 
-        # This slightly odd comparison works around the fact that PostgreSQL will
-        # return 'one' and 'two' as strings, not Unicode objects. It's a side-effect of
-        # using constants here and not a real concern.
         d = Item.objects.extra(select=OrderedDict(s), select_params=params).values('a', 'b')[0]
         self.assertEqual(d, {'a': 'one', 'b': 'two'})
 
@@ -737,10 +731,10 @@ class Queries1Tests(TestCase):
                 q.extra(select={'foo': "1"}),
                 []
             )
+            self.assertQuerysetEqual(q.reverse(), [])
             q.query.low_mark = 1
             with self.assertRaisesMessage(AssertionError, 'Cannot change a query once a slice has been taken'):
                 q.extra(select={'foo': "1"})
-            self.assertQuerysetEqual(q.reverse(), [])
             self.assertQuerysetEqual(q.defer('meal'), [])
             self.assertQuerysetEqual(q.only('meal'), [])
 
@@ -794,8 +788,7 @@ class Queries1Tests(TestCase):
         n_obj = Note.objects.all()[0]
 
         def g():
-            for i in [n_obj.pk]:
-                yield i
+            yield n_obj.pk
         self.assertQuerysetEqual(Note.objects.filter(pk__in=f()), [])
         self.assertEqual(list(Note.objects.filter(pk__in=g())), [n_obj])
 
@@ -1390,6 +1383,18 @@ class Queries4Tests(TestCase):
         self.assertEqual(len(combined), 1)
         self.assertEqual(combined[0].name, 'a1')
 
+    def test_join_reuse_order(self):
+        # Join aliases are reused in order. This shouldn't raise AssertionError
+        # because change_map contains a circular reference (#26522).
+        s1 = School.objects.create()
+        s2 = School.objects.create()
+        s3 = School.objects.create()
+        t1 = Teacher.objects.create()
+        otherteachers = Teacher.objects.exclude(pk=t1.pk).exclude(friends=t1)
+        qs1 = otherteachers.filter(schools=s1).filter(schools=s2)
+        qs2 = otherteachers.filter(schools=s1).filter(schools=s3)
+        self.assertQuerysetEqual(qs1 | qs2, [])
+
     def test_ticket7095(self):
         # Updates that are filtered on the model being updated are somewhat
         # tricky in MySQL.
@@ -1645,6 +1650,8 @@ class Queries5Tests(TestCase):
     def test_ticket9848(self):
         # Make sure that updates which only filter on sub-tables don't
         # inadvertently update the wrong records (bug #9848).
+        author_start = Author.objects.get(name='a1')
+        ranking_start = Ranking.objects.get(author__name='a1')
 
         # Make sure that the IDs from different tables don't happen to match.
         self.assertQuerysetEqual(
@@ -1652,12 +1659,14 @@ class Queries5Tests(TestCase):
             ['<Ranking: 3: a1>']
         )
         self.assertEqual(
-            Ranking.objects.filter(author__name='a1').update(rank='4'),
+            Ranking.objects.filter(author__name='a1').update(rank=4636),
             1
         )
-        r = Ranking.objects.filter(author__name='a1')[0]
-        self.assertNotEqual(r.id, r.author.id)
-        self.assertEqual(r.rank, 4)
+
+        r = Ranking.objects.get(author__name='a1')
+        self.assertEqual(r.id, ranking_start.id)
+        self.assertEqual(r.author.id, author_start.id)
+        self.assertEqual(r.rank, 4636)
         r.rank = 3
         r.save()
         self.assertQuerysetEqual(
@@ -1996,10 +2005,10 @@ class QuerysetOrderedTests(unittest.TestCase):
 class SubqueryTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        DumbCategory.objects.create(id=1)
-        DumbCategory.objects.create(id=2)
-        DumbCategory.objects.create(id=3)
-        DumbCategory.objects.create(id=4)
+        NamedCategory.objects.create(id=1, name='first')
+        NamedCategory.objects.create(id=2, name='second')
+        NamedCategory.objects.create(id=3, name='third')
+        NamedCategory.objects.create(id=4, name='fourth')
 
     def test_ordered_subselect(self):
         "Subselects honor any manual ordering"
@@ -2054,6 +2063,28 @@ class SubqueryTests(TestCase):
 
         DumbCategory.objects.filter(id__in=DumbCategory.objects.order_by('-id')[1:]).delete()
         self.assertEqual(set(DumbCategory.objects.values_list('id', flat=True)), {3})
+
+    def test_distinct_ordered_sliced_subquery(self):
+        # Implicit values('id').
+        self.assertSequenceEqual(
+            NamedCategory.objects.filter(
+                id__in=NamedCategory.objects.distinct().order_by('name')[0:2],
+            ).order_by('name').values_list('name', flat=True), ['first', 'fourth']
+        )
+        # Explicit values('id').
+        self.assertSequenceEqual(
+            NamedCategory.objects.filter(
+                id__in=NamedCategory.objects.distinct().order_by('-name').values('id')[0:2],
+            ).order_by('name').values_list('name', flat=True), ['second', 'third']
+        )
+        # Annotated value.
+        self.assertSequenceEqual(
+            DumbCategory.objects.filter(
+                id__in=DumbCategory.objects.annotate(
+                    double_id=F('id') * 2
+                ).order_by('id').distinct().values('double_id')[0:2],
+            ).order_by('id').values_list('id', flat=True), [2, 4]
+        )
 
 
 class CloneTests(TestCase):
@@ -2247,25 +2278,6 @@ class QuerySetSupportsPythonIdioms(TestCase):
             ]
         )
 
-    @unittest.skipUnless(six.PY2, "Python 2 only -- Python 3 doesn't have longs.")
-    def test_slicing_works_with_longs(self):
-        # NOQA: long undefined on PY3
-        self.assertEqual(self.get_ordered_articles()[long(0)].name, 'Article 1')  # NOQA
-        self.assertQuerysetEqual(self.get_ordered_articles()[long(1):long(3)],  # NOQA
-            ["<Article: Article 2>", "<Article: Article 3>"])
-        self.assertQuerysetEqual(
-            self.get_ordered_articles()[::long(2)], [  # NOQA
-                "<Article: Article 1>",
-                "<Article: Article 3>",
-                "<Article: Article 5>",
-                "<Article: Article 7>"
-            ]
-        )
-
-        # And can be mixed with ints.
-        self.assertQuerysetEqual(self.get_ordered_articles()[1:long(3)],  # NOQA
-            ["<Article: Article 2>", "<Article: Article 3>"])
-
     def test_slicing_without_step_is_lazy(self):
         with self.assertNumQueries(0):
             self.get_ordered_articles()[0:5]
@@ -2416,6 +2428,18 @@ class ToFieldTests(TestCase):
             {apple}
         )
 
+    def test_nested_in_subquery(self):
+        extra = ExtraInfo.objects.create()
+        author = Author.objects.create(num=42, extra=extra)
+        report = Report.objects.create(creator=author)
+        comment = ReportComment.objects.create(report=report)
+        comments = ReportComment.objects.filter(
+            report__in=Report.objects.filter(
+                creator__in=extra.author_set.all(),
+            ),
+        )
+        self.assertSequenceEqual(comments, [comment])
+
     def test_reverse_in(self):
         apple = Food.objects.create(name="apple")
         pear = Food.objects.create(name="pear")
@@ -2533,32 +2557,17 @@ class ConditionalTests(TestCase):
         self.assertEqual(sql.find(fragment, pos + 1), -1)
         self.assertEqual(sql.find("NULL", pos + len(fragment)), pos + len(fragment))
 
-    # Sqlite 3 does not support passing in more than 1000 parameters except by
-    # changing a parameter at compilation time.
-    @skipUnlessDBFeature('supports_1000_query_parameters')
-    def test_ticket14244(self):
+    def test_in_list_limit(self):
         # The "in" lookup works with lists of 1000 items or more.
         # The numbers amount is picked to force three different IN batches
         # for Oracle, yet to be less than 2100 parameter limit for MSSQL.
         numbers = list(range(2050))
-        Number.objects.all().delete()
-        Number.objects.bulk_create(Number(num=num) for num in numbers)
-        self.assertEqual(
-            Number.objects.filter(num__in=numbers[:1000]).count(),
-            1000
-        )
-        self.assertEqual(
-            Number.objects.filter(num__in=numbers[:1001]).count(),
-            1001
-        )
-        self.assertEqual(
-            Number.objects.filter(num__in=numbers[:2000]).count(),
-            2000
-        )
-        self.assertEqual(
-            Number.objects.filter(num__in=numbers).count(),
-            len(numbers)
-        )
+        max_query_params = connection.features.max_query_params
+        if max_query_params is None or max_query_params >= len(numbers):
+            Number.objects.bulk_create(Number(num=num) for num in numbers)
+            for number in [1000, 1001, 2000, len(numbers)]:
+                with self.subTest(number=number):
+                    self.assertEqual(Number.objects.filter(num__in=numbers[:number]).count(), number)
 
 
 class UnionTests(unittest.TestCase):
@@ -2849,13 +2858,13 @@ class EmptyStringsAsNullTest(TestCase):
 
     def test_direct_exclude(self):
         self.assertQuerysetEqual(
-            NamedCategory.objects.exclude(name__in=['nonexisting']),
+            NamedCategory.objects.exclude(name__in=['nonexistent']),
             [self.nc.pk], attrgetter('pk')
         )
 
     def test_joined_exclude(self):
         self.assertQuerysetEqual(
-            DumbCategory.objects.exclude(namedcategory__name__in=['nonexisting']),
+            DumbCategory.objects.exclude(namedcategory__name__in=['nonexistent']),
             [self.nc.pk], attrgetter('pk')
         )
 
@@ -2881,11 +2890,11 @@ class ProxyQueryCleanupTest(TestCase):
 
 
 class WhereNodeTest(TestCase):
-    class DummyNode(object):
+    class DummyNode:
         def as_sql(self, compiler, connection):
             return 'dummy', []
 
-    class MockCompiler(object):
+    class MockCompiler:
         def compile(self, node):
             return node.as_sql(self, connection)
 
@@ -2963,8 +2972,6 @@ class QuerySetExceptionTests(TestCase):
 
     def test_invalid_order_by(self):
         msg = "Invalid order_by arguments: ['*']"
-        if six.PY2:
-            msg = msg.replace("[", "[u")
         with self.assertRaisesMessage(FieldError, msg):
             list(Article.objects.order_by('*'))
 
@@ -3170,6 +3177,25 @@ class JoinReuseTest(TestCase):
     def test_revfk_noreuse(self):
         qs = Author.objects.filter(report__name='r4').filter(report__name='r1')
         self.assertEqual(str(qs.query).count('JOIN'), 2)
+
+    def test_inverted_q_across_relations(self):
+        """
+        When a trimmable join is specified in the query (here school__), the
+        ORM detects it and removes unnecessary joins. The set of reusable joins
+        are updated after trimming the query so that other lookups don't
+        consider that the outer query's filters are in effect for the subquery
+        (#26551).
+        """
+        springfield_elementary = School.objects.create()
+        hogward = School.objects.create()
+        Student.objects.create(school=springfield_elementary)
+        hp = Student.objects.create(school=hogward)
+        Classroom.objects.create(school=hogward, name='Potion')
+        Classroom.objects.create(school=springfield_elementary, name='Main')
+        qs = Student.objects.filter(
+            ~(Q(school__classroom__name='Main') & Q(school__classroom__has_blackboard=None))
+        )
+        self.assertSequenceEqual(qs, [hp])
 
 
 class DisjunctionPromotionTests(TestCase):

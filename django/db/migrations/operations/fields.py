@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 from django.db.models.fields import NOT_PROVIDED
 from django.utils.functional import cached_property
 
@@ -33,20 +31,18 @@ class FieldOperation(Operation):
 
     def reduce(self, operation, in_between, app_label=None):
         return (
-            super(FieldOperation, self).reduce(operation, in_between, app_label=app_label) or
+            super().reduce(operation, in_between, app_label=app_label) or
             not operation.references_field(self.model_name, self.name, app_label)
         )
 
 
 class AddField(FieldOperation):
-    """
-    Adds a field to a model.
-    """
+    """Add a field to a model."""
 
     def __init__(self, model_name, name, field, preserve_default=True):
         self.field = field
         self.preserve_default = preserve_default
-        super(AddField, self).__init__(model_name, name)
+        super().__init__(model_name, name)
 
     def deconstruct(self):
         kwargs = {
@@ -70,7 +66,9 @@ class AddField(FieldOperation):
         else:
             field = self.field
         state.models[app_label, self.model_name_lower].fields.append((self.name, field))
-        state.reload_model(app_label, self.model_name_lower)
+        # Delay rendering of relationships if it's not a relational field
+        delay = not field.is_relation
+        state.reload_model(app_label, self.model_name_lower, delay=delay)
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         to_model = to_state.apps.get_model(app_label, self.model_name)
@@ -114,13 +112,11 @@ class AddField(FieldOperation):
                         field=self.field,
                     ),
                 ]
-        return super(AddField, self).reduce(operation, in_between, app_label=app_label)
+        return super().reduce(operation, in_between, app_label=app_label)
 
 
 class RemoveField(FieldOperation):
-    """
-    Removes a field from a model.
-    """
+    """Remove a field from a model."""
 
     def deconstruct(self):
         kwargs = {
@@ -135,11 +131,16 @@ class RemoveField(FieldOperation):
 
     def state_forwards(self, app_label, state):
         new_fields = []
+        old_field = None
         for name, instance in state.models[app_label, self.model_name_lower].fields:
             if name != self.name:
                 new_fields.append((name, instance))
+            else:
+                old_field = instance
         state.models[app_label, self.model_name_lower].fields = new_fields
-        state.reload_model(app_label, self.model_name_lower)
+        # Delay rendering of relationships if it's not a relational field
+        delay = not old_field.is_relation
+        state.reload_model(app_label, self.model_name_lower, delay=delay)
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         from_model = from_state.apps.get_model(app_label, self.model_name)
@@ -158,13 +159,14 @@ class RemoveField(FieldOperation):
 
 class AlterField(FieldOperation):
     """
-    Alters a field's database column (e.g. null, max_length) to the provided new field
+    Alter a field's database column (e.g. null, max_length) to the provided
+    new field.
     """
 
     def __init__(self, model_name, name, field, preserve_default=True):
         self.field = field
         self.preserve_default = preserve_default
-        super(AlterField, self).__init__(model_name, name)
+        super().__init__(model_name, name)
 
     def deconstruct(self):
         kwargs = {
@@ -191,7 +193,11 @@ class AlterField(FieldOperation):
             for n, f in
             state.models[app_label, self.model_name_lower].fields
         ]
-        state.reload_model(app_label, self.model_name_lower)
+        # TODO: investigate if old relational fields must be reloaded or if it's
+        # sufficient if the new field is (#27737).
+        # Delay rendering of relationships if it's not a relational field
+        delay = not field.is_relation
+        state.reload_model(app_label, self.model_name_lower, delay=delay)
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         to_model = to_state.apps.get_model(app_label, self.model_name)
@@ -223,18 +229,16 @@ class AlterField(FieldOperation):
                     field=self.field,
                 ),
             ]
-        return super(AlterField, self).reduce(operation, in_between, app_label=app_label)
+        return super().reduce(operation, in_between, app_label=app_label)
 
 
 class RenameField(FieldOperation):
-    """
-    Renames a field on the model. Might affect db_column too.
-    """
+    """Rename a field on the model. Might affect db_column too."""
 
     def __init__(self, model_name, old_name, new_name):
         self.old_name = old_name
         self.new_name = new_name
-        super(RenameField, self).__init__(model_name, old_name)
+        super().__init__(model_name, old_name)
 
     @cached_property
     def old_name_lower(self):
@@ -270,7 +274,13 @@ class RenameField(FieldOperation):
                     [self.new_name if n == self.old_name else n for n in together]
                     for together in options[option]
                 ]
-        state.reload_model(app_label, self.model_name_lower)
+        for n, f in state.models[app_label, self.model_name_lower].fields:
+            if n == self.new_name:
+                field = f
+                break
+        # Delay rendering of relationships if it's not a relational field
+        delay = not field.is_relation
+        state.reload_model(app_label, self.model_name_lower, delay=delay)
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         to_model = to_state.apps.get_model(app_label, self.model_name)

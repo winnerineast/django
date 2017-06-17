@@ -1,3 +1,4 @@
+from urllib.parse import urlencode
 from xml.dom.minidom import parseString
 
 from django.contrib.auth.decorators import login_required, permission_required
@@ -13,7 +14,6 @@ from django.shortcuts import render
 from django.template import Context, Template
 from django.test import Client
 from django.utils.decorators import method_decorator
-from django.utils.six.moves.urllib.parse import urlencode
 
 
 def get_view(request):
@@ -248,7 +248,7 @@ permission_protected_view_exception = (
 )
 
 
-class _ViewManager(object):
+class _ViewManager:
     @method_decorator(login_required)
     def login_protected_view(self, request):
         t = Template('This is a login protected test using a method. '
@@ -330,4 +330,4 @@ def django_project_redirect(request):
 
 def upload_view(request):
     """Prints keys of request.FILES to the response."""
-    return HttpResponse(', '.join(request.FILES.keys()))
+    return HttpResponse(', '.join(request.FILES))

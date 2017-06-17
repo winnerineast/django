@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 import datetime
 from decimal import Decimal
 
@@ -8,9 +6,8 @@ from django.db.models import (
     BooleanField, CharField, Count, DateTimeField, ExpressionWrapper, F, Func,
     IntegerField, NullBooleanField, Q, Sum, Value,
 )
-from django.db.models.functions import Lower
+from django.db.models.functions import Length, Lower
 from django.test import TestCase, skipUnlessDBFeature
-from django.utils import six
 
 from .models import (
     Author, Book, Company, DepartmentStore, Employee, Publisher, Store, Ticket,
@@ -26,7 +23,7 @@ def cxOracle_py3_bug(func):
     """
     from unittest import expectedFailure
     from django.db import connection
-    return expectedFailure(func) if connection.vendor == 'oracle' and six.PY3 else func
+    return expectedFailure(func) if connection.vendor == 'oracle' else func
 
 
 class NonAggregateAnnotationTestCase(TestCase):
@@ -200,13 +197,18 @@ class NonAggregateAnnotationTestCase(TestCase):
             name_lower=Lower('last_name'),
         ).distinct('name_lower')
 
-        self.assertEqual(set(p.last_name for p in people), {'Stark', 'Roosevelt'})
+        self.assertEqual({p.last_name for p in people}, {'Stark', 'Roosevelt'})
         self.assertEqual(len(people), 2)
 
         people2 = Employee.objects.annotate(
             test_alias=F('store__name'),
         ).distinct('test_alias')
         self.assertEqual(len(people2), 1)
+
+        lengths = Employee.objects.annotate(
+            name_len=Length('first_name'),
+        ).distinct('name_len').values_list('name_len', flat=True)
+        self.assertSequenceEqual(lengths, [3, 7, 8])
 
     def test_filter_annotation(self):
         books = Book.objects.annotate(
@@ -294,6 +296,12 @@ class NonAggregateAnnotationTestCase(TestCase):
         book = qs.annotate(other_isbn=F('isbn')).get(other_rating=4)
         self.assertEqual(book['other_rating'], 4)
         self.assertEqual(book['other_isbn'], '155860191')
+
+    def test_values_with_pk_annotation(self):
+        # annotate references a field in values() with pk
+        publishers = Publisher.objects.values('id', 'book__rating').annotate(total=Sum('book__rating'))
+        for publisher in publishers.filter(pk=self.p1.pk):
+            self.assertEqual(publisher['book__rating'], publisher['total'])
 
     def test_defer_annotation(self):
         """

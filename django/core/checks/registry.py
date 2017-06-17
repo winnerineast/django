@@ -1,12 +1,9 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 from itertools import chain
 
 from django.utils.itercompat import is_iterable
 
 
-class Tags(object):
+class Tags:
     """
     Built-in tags for internal checks.
     """
@@ -21,7 +18,7 @@ class Tags(object):
     urls = 'urls'
 
 
-class CheckRegistry(object):
+class CheckRegistry:
 
     def __init__(self):
         self.registered_checks = []
@@ -89,7 +86,10 @@ class CheckRegistry(object):
         return tag in self.tags_available(include_deployment_checks)
 
     def tags_available(self, deployment_checks=False):
-        return set(chain(*[check.tags for check in self.get_checks(deployment_checks) if hasattr(check, 'tags')]))
+        return set(chain.from_iterable(
+            check.tags for check in self.get_checks(deployment_checks)
+            if hasattr(check, 'tags')
+        ))
 
     def get_checks(self, include_deployment_checks=False):
         checks = list(self.registered_checks)
