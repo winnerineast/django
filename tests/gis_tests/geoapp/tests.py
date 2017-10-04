@@ -403,6 +403,27 @@ class GeoLookupTest(TestCase):
         State.objects.filter(name='Northern Mariana Islands').update(poly=None)
         self.assertIsNone(State.objects.get(name='Northern Mariana Islands').poly)
 
+    @skipUnlessDBFeature('supports_null_geometries', 'supports_crosses_lookup', 'supports_relate_lookup')
+    def test_null_geometries_excluded_in_lookups(self):
+        """NULL features are excluded in spatial lookup functions."""
+        null = State.objects.create(name='NULL', poly=None)
+        queries = [
+            ('equals', Point(1, 1)),
+            ('disjoint', Point(1, 1)),
+            ('touches', Point(1, 1)),
+            ('crosses', LineString((0, 0), (1, 1), (5, 5))),
+            ('within', Point(1, 1)),
+            ('overlaps', LineString((0, 0), (1, 1), (5, 5))),
+            ('contains', LineString((0, 0), (1, 1), (5, 5))),
+            ('intersects', LineString((0, 0), (1, 1), (5, 5))),
+            ('relate', (Point(1, 1), 'T*T***FF*')),
+            ('same_as', Point(1, 1)),
+            ('exact', Point(1, 1)),
+        ]
+        for lookup, geom in queries:
+            with self.subTest(lookup=lookup):
+                self.assertNotIn(null, State.objects.filter(**{'poly__%s' % lookup: geom}))
+
     @skipUnlessDBFeature("supports_relate_lookup")
     def test_relate_lookup(self):
         "Testing the 'relate' lookup type."
@@ -447,6 +468,18 @@ class GeoLookupTest(TestCase):
             self.assertEqual('Texas', Country.objects.get(mpoly__relate=(pnt1, intersects_mask)).name)
             self.assertEqual('Texas', Country.objects.get(mpoly__relate=(pnt2, intersects_mask)).name)
             self.assertEqual('Lawrence', City.objects.get(point__relate=(ks.poly, intersects_mask)).name)
+
+        # With a complex geometry expression
+        mask = 'anyinteract' if oracle else within_mask
+        self.assertFalse(City.objects.exclude(point__relate=(functions.Union('point', 'point'), mask)))
+
+    def test_gis_lookups_with_complex_expressions(self):
+        multiple_arg_lookups = {'dwithin', 'relate'}  # These lookups are tested elsewhere.
+        lookups = connection.ops.gis_operators.keys() - multiple_arg_lookups
+        self.assertTrue(lookups, 'No lookups found')
+        for lookup in lookups:
+            with self.subTest(lookup):
+                City.objects.filter(**{'point__' + lookup: functions.Union('point', 'point')}).exists()
 
 
 class GeoQuerySetTest(TestCase):
